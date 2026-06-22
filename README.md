@@ -84,6 +84,12 @@ python pipeline/e2e_train_serve.py --model <qwen3-0.6b dir> --vector model_iter_
 python pipeline/e2e_train_serve.py --skip-train --head trinity_perstep.npy \
   --model <qwen3-0.6b dir> --local-models "<llama dir>,<gemma dir>"
 
+# SERVE (Fugu-Ultra): the Conductor workflow-DAG executor, fully local (no API)
+python openfugu/ultra.py --query "..." --local-conductor <conductor dir> \
+  --local-models "<llama dir>,<deepseek dir>"          # local Conductor emits + executes a DAG
+python eval/ultra_e2e.py --conductor-ckpt <conductor dir> \
+  --local-models "<llama dir>,<deepseek dir>"          # asserts a parsed, executed workflow
+
 # EVAL: does orchestration beat the best single model? (the central Fugu claim)
 python eval/eval_orchestration.py        # trained coordinator +107% over best single, PASS
 ```

@@ -245,3 +245,40 @@ the exact path the serving stage loads — so the artifact under test is provabl
 the one just produced, not a pre-baked file. This is "real end-to-end training
 and serving" as one reproducible command. (`--skip-train --head <path>` runs the
 serve+verify half alone against an existing head.)
+
+## Fugu-Ultra Conductor — local end-to-end, and an honest DSL finding
+
+`openfugu/ultra.py` now runs the Conductor workflow-DAG executor fully locally:
+`--local-conductor` loads a local model to emit the workflow, `--local-models`
+executes the DAG steps over resident workers (no API). `eval/ultra_e2e.py` proves
+it end-to-end and fails loudly if no workflow parses. Log:
+[`conductor_e2e_run.txt`](conductor_e2e_run.txt).
+
+**The local-Conductor mechanism works** (a model that follows the 3-list format
+emits a workflow that executes over the local pool):
+
+```
+local Conductor: gemma-3-4b   workers LOCAL: llama-3.2-3b, deepseek-distill-7b
+emitted workflow: model_id=[0,0,0] access_list=[[],[],['all']] steps=3
+executed 3 steps -> non-empty final answer   PASS
+```
+
+**Honest finding — our GRPO-trained `checkpoint-100` does NOT drive this
+executor.** When pointed at the workflow executor it emitted plain Python code,
+parsing to 0 steps → FAIL (reported, not hidden):
+
+```
+local Conductor: conductor_toolscale_100/checkpoint-100
+emitted workflow: model_id=[] access_list=[] steps=0   FAIL — no parseable workflow
+raw completion: ```python\n def fibonacci(n): ...   (a direct answer, not a DAG)
+```
+
+Why: `checkpoint-100` was GRPO-trained on the **ToolScale tool-call DSL**
+(`<think>/<answer>[json]` tool calls), which is a *different output language*
+from Fugu-Ultra's **3-list workflow DSL** (`model_id / subtasks / access_list`).
+The two orchestrators (TRINITY router vs Conductor) and the two training tasks
+speak different formats; a tool-call-trained checkpoint correctly fails to parse
+as a workflow Conductor. To get a *trained* local Conductor that drives this
+executor you would GRPO on the workflow DSL itself (the Conductor paper's actual
+target) — a separate training run, not a relabeling. The mechanism is proven and
+the gap is named, rather than papered over with a model that happens to fit.
