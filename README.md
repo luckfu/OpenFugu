@@ -74,7 +74,7 @@ The Conductor we trained on ToolScale (a fine-tune of Llama-3.2-3B-Instruct) is
 published on HuggingFace, **not** in this repo (Llama 3.2 Community License
 applies — see `NOTICE`):
 
-    huggingface.co/openfugu/openfugu-conductor-3b   (see model card)
+    huggingface.co/di-zhang-fdu/openfugu-conductor-3b   (see model card)
 
 ## License
 
