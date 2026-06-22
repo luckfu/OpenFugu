@@ -53,6 +53,9 @@ python train/train_conductor.py           # reward climbs off zero; saves checkp
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # learns to recurse; +9% over one-shot, PASS
 
+# TRAIN: adaptive k-of-n pool — generalize to arbitrary worker subsets (swap the pool)
+python train/train_adaptive_pool.py       # subset-aware routing +44% over blind, 94% of oracle, PASS
+
 # TRAIN: self-train the TRINITY coordinator from scratch (sep-CMA-ES, mock — no GPU/API)
 python train/train_trinity.py             # chance -> optimal routing; PASS in seconds
 
