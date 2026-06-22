@@ -83,3 +83,27 @@ small-but-real lift; (2) deepseek scoring 0.000 likely reflects the JSON-plan
 parser being strict on a reasoning model's long-CoT output, not the model being
 incapable. The headline holds: the real-data router loop runs, and on
 complementary multi-domain workers the coordinator > best single model.
+
+## Recursive Conductor — REAL GRPO finetune (runs; reward saturated)
+
+`train/train_recursion_real.py` finetunes our trained Conductor
+(conductor_toolscale_100/checkpoint-100) with GRPO so it can name itself as a
+worker and revise across rounds (Fugu-Ultra's test-time-scaling axis). Real 3B
+model, real trl GRPO, ToolScale reward, 30 steps. Log:
+[`recursion_real_run.txt`](recursion_real_run.txt). Saved weights:
+`conductor_recursion/`.
+
+```
+base=checkpoint-100  reward steady ~1.70 (format 1.0 + action 0.70)
+train_runtime 143s, loss ~= 0
+```
+
+**Honest result:** the real recursive finetune **runs end-to-end and saves a
+model**, but does NOT show a recursion *gain* here — `reward_std=0`,
+`frac_reward_zero_std=1.0`, `loss≈0` mean the reward is **saturated**: the base
+Conductor was already strong on ToolScale (~1.70), so GRPO sees no group variance
+and therefore no gradient. The mock `train_recursion.py` shows the +9% recursion
+lift precisely because it starts from a non-saturated toy policy with headroom.
+To show the gain on the real model you'd start from a weaker base or a harder
+task that leaves room to improve — the loop itself is proven to run on the real
+model. This is the last of Fugu-Ultra's mechanisms taken from mock to a real run.

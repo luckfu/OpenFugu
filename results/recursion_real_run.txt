@@ -1,0 +1,7 @@
+[recursion-real] base=checkpoint-100 train=229
+[recursion-real] starting REAL recursive GRPO finetune from trained Conductor...
+[step 10] reward=1.700 act=0.700 fmt=1.000
+[step 20] reward=1.595 act=0.595 fmt=1.000
+[step 30] reward=1.700 act=0.700 fmt=1.000
+{'train_runtime': 143.5971, 'train_samples_per_second': 3.343, 'train_steps_per_second': 0.209, 'train_loss': -0.003197406977415085, 'epoch': 0.26}
+[recursion-real] DONE — saved to /vePFS-Mindverse/share/diz/openfugu/conductor_recursion
