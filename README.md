@@ -20,7 +20,7 @@ endpoint. Four stages, all working: **read → run → train → serve.**
 |-------|------|----------|
 | **read** | `docs/HOW_FUGU_IS_IMPLEMENTED.md` — full math; `docs/ARCHITECTURE.md` — investigation log, evidence-graded | reverse-engineered from papers + author code |
 | **run** | `openfugu/mini.py` (TRINITY: hidden-state → linear head → worker); `openfugu/ultra.py` (Conductor: workflow-DAG) | `mini.py --self-test` = **95% agent / 100% role** on the 37-case fixture, real weights |
-| **train** | `train/` — GRPO a Conductor on `nvidia/ToolScale` with a verifiable tool-call reward | reward **0.70 → 1.70** over 100 steps |
+| **train** | `train/train_trinity.py` — self-train the **TRINITY** coordinator from scratch via sep-CMA-ES (no Sakana weights); `train/train_conductor.py` — GRPO a **Conductor** on `nvidia/ToolScale` | TRINITY: chance→optimal routing in ~5 generations (mock, runs anywhere); Conductor: reward **0.70 → 1.70** over 100 steps |
 | **serve** | `openfugu/serve.py` — one OpenAI-compatible `/v1/chat/completions`; internal TRINITY loop over a litellm pool | `curl` returns one answer; pool hidden |
 
 ## Quickstart
@@ -49,6 +49,9 @@ python openfugu/mini.py --demo --live \
 
 # TRAIN: a Conductor on ToolScale (8x A800-class; HF generation, no vLLM)
 python train/train_conductor.py           # reward climbs off zero; saves checkpoint
+
+# TRAIN: self-train the TRINITY coordinator from scratch (sep-CMA-ES, mock — no GPU/API)
+python train/train_trinity.py             # chance -> optimal routing; PASS in seconds
 
 # SERVE: Fugu as one model
 python openfugu/serve.py --slot-models "<csv>" --port 8088

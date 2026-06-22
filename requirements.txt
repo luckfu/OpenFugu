@@ -14,3 +14,4 @@ omegaconf
 math_verify
 # artifact fetch
 huggingface_hub
+cma
