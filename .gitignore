@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.waylog/
 
 # fetched third-party material — NEVER commit (pulled by scripts/fetch_artifacts.py)
 artifacts/

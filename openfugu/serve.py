@@ -30,7 +30,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # reuse the faithful implementation
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mini import (FuguRouter, Coordinator, LiteLLMWorker, MockWorker,
-                  DEFAULT_SLOT_LABELS, HEAD_ROWS, HIDDEN)
+                  DEFAULT_SLOT_LABELS, HEAD_ROWS, HIDDEN, N_AGENTS, N_ROLES,
+                  ROLE_NAMES)
 
 ROUTER: FuguRouter | None = None
 WORKER = None
@@ -97,6 +98,33 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+class RehearsalRouter:
+    """Torch-free router for local rehearsals.
+
+    It exercises the same Coordinator and HTTP surface as normal serving, but it
+    does not load Qwen weights or a trained head. This is only a wiring demo.
+    """
+    def __init__(self):
+        self.i = 0
+        self.plan = [0, 2, 0, 2]  # worker, verifier(reject), worker, verifier(accept)
+
+    def route(self, messages, sample=False, agent_mask=None):
+        role_id = self.plan[self.i % len(self.plan)]
+        agent_id = self.i % N_AGENTS
+        self.i += 1
+        agent_logits = np.zeros(N_AGENTS, dtype=np.float32)
+        role_logits = np.zeros(N_ROLES, dtype=np.float32)
+        agent_logits[agent_id] = 1.0
+        role_logits[role_id] = 1.0
+        return {
+            "agent_id": agent_id,
+            "role_id": role_id,
+            "role_name": ROLE_NAMES[role_id],
+            "agent_logits": agent_logits,
+            "role_logits": role_logits,
+        }
+
+
 class LocalPoolWorker:
     """Serving-time local worker pool — the same protocol the per-step trainer
     used. The Coordinator calls (role_name, messages, agent_id) -> reply; we
@@ -135,7 +163,7 @@ class LocalPoolWorker:
 def main():
     global ROUTER, WORKER, MAX_TURNS
     ap = argparse.ArgumentParser(description="Serve Fugu as one OpenAI-compatible model.")
-    ap.add_argument("--model", required=True, help="Qwen3-0.6B dir")
+    ap.add_argument("--model", help="Qwen3-0.6B dir")
     ap.add_argument("--vector", default="model_iter_60.npy",
                     help="base vector (19456) — SVF + head")
     ap.add_argument("--head", default=None,
@@ -147,11 +175,25 @@ def main():
                          "Optional 'path@device' per entry; default round-robin GPUs.")
     ap.add_argument("--port", type=int, default=8088)
     ap.add_argument("--max-turns", type=int, default=5)
+    ap.add_argument("--mock-router", action="store_true",
+                    help="torch-free rehearsal mode: use deterministic routing "
+                         "instead of loading Qwen + vector")
     args = ap.parse_args()
     MAX_TURNS = args.max_turns
 
-    print(f"[serve] loading TRINITY router ({args.model}) ...", flush=True)
-    ROUTER = FuguRouter(args.model, args.vector, seed=0)
+    if args.mock_router:
+        if args.head:
+            raise SystemExit("[serve] --head is incompatible with --mock-router")
+        if args.local_models:
+            raise SystemExit("[serve] --local-models requires the real torch router")
+        ROUTER = RehearsalRouter()
+        print("[serve] router: MOCK rehearsal (no torch/model/vector loaded)", flush=True)
+    else:
+        if not args.model:
+            raise SystemExit("[serve] --model is required unless --mock-router is used")
+        print(f"[serve] loading TRINITY router ({args.model}) ...", flush=True)
+        ROUTER = FuguRouter(args.model, args.vector, seed=0)
+
     if args.head:                                  # layer a trained head over base SVF
         h = np.load(args.head).astype(np.float64)
         if h.shape != (HEAD_ROWS * HIDDEN,):

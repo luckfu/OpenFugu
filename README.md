@@ -43,6 +43,10 @@ python openfugu/mini.py --self-test       # -> 95% / 100%
 # RUN:   route one query (offline mock pool)
 python openfugu/mini.py --demo
 
+# REHEARSE (no torch / no training): exercise the OpenAI-compatible server and
+# Coordinator loop with a deterministic mock router + mock worker pool.
+python eval/rehearsal_no_torch.py        # -> PASS
+
 # RUN (live): real worker pool via litellm
 export FUGU_API_KEY=...  FUGU_BASE_URL=...
 python openfugu/mini.py --demo --live \
@@ -76,6 +80,9 @@ python openfugu/serve.py --slot-models "<csv>" --port 8088
 curl localhost:8088/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"flatten a nested list in one line"}]}'
+
+# SERVE rehearsal only, with no torch/model/vector/training:
+python openfugu/serve.py --mock-router --port 8088
 
 # SERVE (real end-to-end): TRAINED per-step head + REAL local worker pool, no API
 python openfugu/serve.py --model <qwen3-0.6b dir> --vector model_iter_60.npy \
