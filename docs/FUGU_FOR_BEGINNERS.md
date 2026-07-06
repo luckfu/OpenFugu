@@ -489,7 +489,64 @@ task 3         0.5        0.0        1.0
 
 之后 CMA-ES 训练就只是在缓存分数上搜索路由头，速度会快很多。
 
-### 8.2 几类训练数据的区别
+### 8.2 Colab 一键脚本
+
+为了方便在 Colab 上测试，仓库里提供了一个脚本：
+
+```text
+scripts/colab_liveclawbench_router.sh
+```
+
+Colab 里可以这样跑：
+
+```bash
+!git clone https://github.com/luckfu/OpenFugu.git
+%cd OpenFugu
+
+!SLOT_MODELS="custom/model-a,custom/model-b" \
+  CUSTOM_BASE_URL="https://api.example.com/v1" \
+  CUSTOM_API_KEY="你的 API key" \
+  N_TRAIN=8 \
+  ITERS=12 \
+  bash scripts/colab_liveclawbench_router.sh
+```
+
+这个脚本会做几件事：
+
+```text
+安装 OpenFugu Python 依赖
+下载 model_iter_60.npy 和 Qwen3-0.6B
+克隆 LiveClawBench
+运行 LiveClawBench 的 ./setup.sh
+检查 Harbor / Docker
+调用 train/train_trinity_liveclawbench.py 开始训练
+```
+
+几个常用环境变量：
+
+| 变量 | 默认值 | 作用 |
+| --- | --- | --- |
+| `SLOT_MODELS` | `custom/model-a,custom/model-b` | worker slot 列表 |
+| `CUSTOM_BASE_URL` | 空 | OpenAI-compatible worker API 地址 |
+| `CUSTOM_API_KEY` | 空 | worker API key |
+| `N_TRAIN` | `8` | 训练用 LiveClawBench 任务数 |
+| `ITERS` | `12` | CMA-ES 迭代次数 |
+| `DEVICE` | `cuda:0` | Qwen3-0.6B router backbone 运行设备 |
+| `DOMAINS` | 空 | 可选，按 LiveClawBench domain 过滤 |
+| `DIFFICULTIES` | 空 | 可选，例如 `easy|medium` |
+| `INCLUDE_REGEX` | 空 | 可选，按任务目录名正则过滤 |
+
+输出文件默认在 Colab 的 `/content` 下：
+
+```text
+/content/trinity_liveclawbench.npy      # 训练出的 router head
+/content/liveclawbench_scores.csv       # task × worker 分数矩阵
+/content/openfugu_liveclawbench_jobs    # Harbor job 和缓存
+```
+
+注意：LiveClawBench 的真实评测依赖 Docker。如果当前 Colab runtime 没有可用 Docker daemon，脚本会提前停止并提示。这个限制来自 LiveClawBench/Harbor，不是 OpenFugu 训练脚本本身。
+
+### 8.3 几类训练数据的区别
 
 现在可以把几种训练数据放在一起比较：
 
