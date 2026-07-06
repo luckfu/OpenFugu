@@ -1,0 +1,124 @@
+# OpenFugu + LiveClawBench router training config:
+# DeepSeek official API + Zhipu official API workers.
+#
+# Usage in Colab:
+#   git pull
+#   cp configs/deepseek_zhipu.example.yaml configs/my_workers.yaml
+#   # edit API keys / keep the models you want
+#   CONFIG_FILE=configs/my_workers.yaml bash scripts/colab_liveclawbench_router.sh
+#
+# Notes:
+# - `custom/...` means Harbor/OpenClaw should call an OpenAI-compatible endpoint
+#   using the per-worker CUSTOM_BASE_URL and CUSTOM_API_KEY below.
+# - The text after `custom/` is the model string sent to that provider.
+# - Keep worker order stable: slot 0 is the first worker, slot 1 the second, etc.
+
+liveclawbench_dir: /content/LiveClawBench
+
+router:
+  model: Qwen/Qwen3-0.6B
+  device: cuda:0
+
+training:
+  n_train: 8
+  iters: 12
+  sigma0: 0.3
+  seed: 42
+  precompute_all: true
+
+filters:
+  # Leave empty to sample from all LiveClawBench tasks.
+  # Good first smoke test:
+  # difficulties:
+  #   - easy
+  # Good engineering-focused run:
+  # domains:
+  #   - Coding & Software Dev
+  #   - DevOps & Env Repair
+  include_regex:
+
+outputs:
+  head: /content/trinity_liveclawbench.npy
+  matrix: /content/liveclawbench_scores.csv
+  jobs_dir: /content/openfugu_liveclawbench_jobs
+
+harbor:
+  timeout_multiplier: 1.0
+
+workers:
+  # -------------------------
+  # DeepSeek official API
+  # -------------------------
+  # Official OpenAI-compatible endpoint:
+  #   https://api.deepseek.com/v1
+  #
+  # DeepSeek docs currently list deepseek-chat and deepseek-reasoner, while
+  # warning that these names will be deprecated on 2026-07-24 and map to
+  # deepseek-v4-flash non-thinking / thinking modes. Keep or change according
+  # to your account's /models result.
+
+  - name: deepseek_chat
+    model: custom/deepseek-chat
+    ae:
+      CUSTOM_BASE_URL: https://api.deepseek.com/v1
+      CUSTOM_API_KEY: replace-with-deepseek-key
+      CUSTOM_API: openai-completions
+      CUSTOM_CONTEXT_WINDOW: 128000
+      CUSTOM_MAX_TOKENS: 4096
+      CUSTOM_REASONING: "false"
+
+  - name: deepseek_reasoner
+    model: custom/deepseek-reasoner
+    ae:
+      CUSTOM_BASE_URL: https://api.deepseek.com/v1
+      CUSTOM_API_KEY: replace-with-deepseek-key
+      CUSTOM_API: openai-completions
+      CUSTOM_CONTEXT_WINDOW: 128000
+      CUSTOM_MAX_TOKENS: 4096
+      CUSTOM_REASONING: "true"
+
+  # Optional newer naming, if your DeepSeek account exposes it directly.
+  # Uncomment after confirming via DeepSeek /models.
+  #
+  # - name: deepseek_v4_flash
+  #   model: custom/deepseek-v4-flash
+  #   ae:
+  #     CUSTOM_BASE_URL: https://api.deepseek.com/v1
+  #     CUSTOM_API_KEY: replace-with-deepseek-key
+  #     CUSTOM_API: openai-completions
+  #     CUSTOM_CONTEXT_WINDOW: 128000
+  #     CUSTOM_MAX_TOKENS: 4096
+  #     CUSTOM_REASONING: "false"
+
+  # -------------------------
+  # Zhipu official API
+  # -------------------------
+  # Official OpenAI-compatible endpoint:
+  #   https://open.bigmodel.cn/api/paas/v4/
+  #
+  # For GLM Coding Plan endpoint, use:
+  #   https://open.bigmodel.cn/api/coding/paas/v4
+
+  - name: zhipu_glm_5_2
+    model: custom/glm-5.2
+    ae:
+      CUSTOM_BASE_URL: https://open.bigmodel.cn/api/paas/v4/
+      CUSTOM_API_KEY: replace-with-zhipu-key
+      CUSTOM_API: openai-completions
+      CUSTOM_CONTEXT_WINDOW: 1000000
+      CUSTOM_MAX_TOKENS: 8192
+      CUSTOM_REASONING: "true"
+
+  # Optional: if your account uses the GLM Coding Plan endpoint for GLM-5.2.
+  # Keep either zhipu_glm_5_2 or this one, unless you explicitly want to compare
+  # the two endpoints as separate worker slots.
+  #
+  # - name: zhipu_glm_5_2_coding_plan
+  #   model: custom/glm-5.2
+  #   ae:
+  #     CUSTOM_BASE_URL: https://open.bigmodel.cn/api/coding/paas/v4
+  #     CUSTOM_API_KEY: replace-with-zhipu-key
+  #     CUSTOM_API: openai-completions
+  #     CUSTOM_CONTEXT_WINDOW: 1000000
+  #     CUSTOM_MAX_TOKENS: 8192
+  #     CUSTOM_REASONING: "true"
