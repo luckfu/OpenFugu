@@ -37,6 +37,8 @@ filters:
 outputs:
   head: /content/trinity_liveclawbench.npy
   matrix: /content/liveclawbench_scores.csv
+  offline_head: /content/trinity_liveclawbench_offline.npy
+  offline_matrix: /content/liveclawbench_offline_scores.csv
   jobs_dir: /content/openfugu_liveclawbench_jobs
 
 harbor:
@@ -55,11 +57,15 @@ workers:
   # Native provider example. This worker reads OPENAI_API_KEY from harbor.ae.
   - name: gpt
     model: openai/gpt-4o
+    # Optional: set this if the published HuggingFace trajectories contain the
+    # same model under a leaderboard name.
+    # offline_model_name: GPT-5.5
 
   # Another native provider example. This worker reads ANTHROPIC_API_KEY from
   # harbor.ae.
   - name: claude
     model: anthropic/claude-sonnet-4-5
+    # offline_model_name: Claude-Opus-4.8
 
   # Per-worker custom endpoint example. This is the important case when
   # different custom/... slots need different base URLs or API keys.
