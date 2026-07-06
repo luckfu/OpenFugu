@@ -51,6 +51,13 @@ python openfugu/mini.py --demo --live \
 # TRAIN: a Conductor on ToolScale (8x A800-class; HF generation, no vLLM)
 python train/train_conductor.py           # reward climbs off zero; saves checkpoint
 
+# TRAIN: TRINITY router on LiveClawBench via Harbor verifier rewards
+# First set up https://github.com/Mosi-AI/LiveClawBench separately (`./setup.sh`).
+python train/train_trinity_liveclawbench.py --liveclawbench-dir <LiveClawBench dir> \
+  --slot-models "custom/model-a,custom/model-b" \
+  --ae CUSTOM_BASE_URL="$CUSTOM_BASE_URL" --ae CUSTOM_API_KEY="$CUSTOM_API_KEY" \
+  --n-train 8 --iters 12 --precompute-all
+
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # mock: +9% over one-shot (toy policy w/ headroom)
 python train/train_recursion_real.py      # REAL recursion (round-0 fed back into round-1)
