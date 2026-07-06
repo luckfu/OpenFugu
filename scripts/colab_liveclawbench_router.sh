@@ -7,10 +7,13 @@ set -euo pipefail
 # Typical Colab usage:
 #   !git clone https://github.com/luckfu/OpenFugu.git
 #   %cd OpenFugu
-#   !SLOT_MODELS="custom/model-a,custom/model-b" \
-#     CUSTOM_BASE_URL="https://api.example.com/v1" \
-#     CUSTOM_API_KEY="..." \
+#   !SLOT_MODELS="openai/gpt-4o,anthropic/claude-sonnet-4-5" \
+#     OPENAI_API_KEY="..." \
+#     ANTHROPIC_API_KEY="..." \
 #     bash scripts/colab_liveclawbench_router.sh
+#
+# If multiple custom/... workers need different endpoints:
+#   WORKER_AE='0:CUSTOM_BASE_URL=https://a.example/v1;0:CUSTOM_API_KEY=key-a;1:CUSTOM_BASE_URL=https://b.example/v1;1:CUSTOM_API_KEY=key-b'
 #
 # Important: LiveClawBench's official Harbor runner needs Docker. Some Colab
 # runtimes do not expose a working Docker daemon; this script checks that early.
@@ -37,6 +40,9 @@ MATRIX_OUT="${MATRIX_OUT:-/content/liveclawbench_scores.csv}"
 DOMAINS="${DOMAINS:-}"
 DIFFICULTIES="${DIFFICULTIES:-}"
 INCLUDE_REGEX="${INCLUDE_REGEX:-}"
+WORKER_AE="${WORKER_AE:-}"
+WORKER_EE="${WORKER_EE:-}"
+WORKER_AK="${WORKER_AK:-}"
 
 # Set to 0 if you want lazy scoring during CMA-ES instead of full task x worker
 # precomputation. Precompute is slower up front but makes the training loop cheap
@@ -115,24 +121,41 @@ fi
 log "Harbor: $HARBOR_BIN"
 
 AE_ARGS=()
-if [[ -n "${CUSTOM_BASE_URL:-}" ]]; then
-  AE_ARGS+=(--ae "CUSTOM_BASE_URL=${CUSTOM_BASE_URL}")
-fi
-if [[ -n "${CUSTOM_API_KEY:-}" ]]; then
-  AE_ARGS+=(--ae "CUSTOM_API_KEY=${CUSTOM_API_KEY}")
-fi
-if [[ -n "${CUSTOM_CONTEXT_WINDOW:-}" ]]; then
-  AE_ARGS+=(--ae "CUSTOM_CONTEXT_WINDOW=${CUSTOM_CONTEXT_WINDOW}")
-fi
-if [[ -n "${CUSTOM_MAX_TOKENS:-}" ]]; then
-  AE_ARGS+=(--ae "CUSTOM_MAX_TOKENS=${CUSTOM_MAX_TOKENS}")
-fi
-if [[ -n "${CUSTOM_REASONING:-}" ]]; then
-  AE_ARGS+=(--ae "CUSTOM_REASONING=${CUSTOM_REASONING}")
-fi
-if [[ -n "${CUSTOM_API:-}" ]]; then
-  AE_ARGS+=(--ae "CUSTOM_API=${CUSTOM_API}")
-fi
+add_ae_var() {
+  local name="$1"
+  if [[ -n "${!name:-}" ]]; then
+    AE_ARGS+=(--ae "${name}=${!name}")
+  fi
+}
+
+# Global env for Harbor/OpenClaw. This is useful when all workers share one
+# gateway, or when using native provider prefixes such as openai/... and
+# anthropic/... .
+for name in \
+  CUSTOM_BASE_URL CUSTOM_API_KEY CUSTOM_CONTEXT_WINDOW CUSTOM_MAX_TOKENS CUSTOM_REASONING CUSTOM_API \
+  OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY \
+  OPENROUTER_API_KEY MOONSHOT_API_KEY VOLCANO_ENGINE_API_KEY DEEPSEEK_API_KEY
+do
+  add_ae_var "$name"
+done
+
+WORKER_ARGS=()
+add_worker_items() {
+  local flag="$1"
+  local raw="$2"
+  [[ -n "$raw" ]] || return 0
+  local old_ifs="$IFS"
+  IFS=';'
+  read -ra items <<< "$raw"
+  IFS="$old_ifs"
+  for item in "${items[@]}"; do
+    [[ -n "$item" ]] || continue
+    WORKER_ARGS+=("$flag" "$item")
+  done
+}
+add_worker_items --worker-ae "$WORKER_AE"
+add_worker_items --worker-ee "$WORKER_EE"
+add_worker_items --worker-ak "$WORKER_AK"
 
 FILTER_ARGS=()
 if [[ -n "$DOMAINS" ]]; then
@@ -166,6 +189,7 @@ python train/train_trinity_liveclawbench.py \
   --harbor-bin "$HARBOR_BIN" \
   --timeout-multiplier "$TIMEOUT_MULTIPLIER" \
   "${AE_ARGS[@]}" \
+  "${WORKER_ARGS[@]}" \
   "${FILTER_ARGS[@]}" \
   "${PRECOMPUTE_ARGS[@]}"
 

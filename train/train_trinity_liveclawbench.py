@@ -138,14 +138,31 @@ def load_tasks(root: Path, n_train: int, seed: int, domains: set[str] | None,
     return rows[:n_train] if n_train else rows
 
 
+def parse_worker_env(items: list[str], n_workers: int) -> dict[int, list[str]]:
+    """Parse repeated values like '0:CUSTOM_API_KEY=sk-...'."""
+    out: dict[int, list[str]] = {}
+    for item in items:
+        if ":" not in item or "=" not in item:
+            raise ValueError(f"worker env must look like INDEX:KEY=VALUE, got {item!r}")
+        idx_s, kv = item.split(":", 1)
+        idx = int(idx_s)
+        if idx < 0 or idx >= n_workers:
+            raise ValueError(f"worker env index {idx} out of range for {n_workers} workers")
+        out.setdefault(idx, []).append(kv)
+    return out
+
+
 class HarborScorer:
     def __init__(self, root: Path, workers: list[str], job_root: Path,
                  ae: list[str], ee: list[str], ak: list[str],
+                 worker_ae: dict[int, list[str]], worker_ee: dict[int, list[str]],
+                 worker_ak: dict[int, list[str]],
                  timeout_multiplier: float, harbor_bin: str, debug: bool):
         self.root = root
         self.workers = workers
         self.job_root = job_root
         self.ae, self.ee, self.ak = ae, ee, ak
+        self.worker_ae, self.worker_ee, self.worker_ak = worker_ae, worker_ee, worker_ak
         self.timeout_multiplier = timeout_multiplier
         self.harbor_bin = harbor_bin
         self.debug = debug
@@ -177,11 +194,11 @@ class HarborScorer:
             "-o", str(run_dir),
             "--timeout-multiplier", str(self.timeout_multiplier),
         ]
-        for item in self.ae:
+        for item in self.ae + self.worker_ae.get(worker_id, []):
             cmd.extend(["--ae", item])
-        for item in self.ee:
+        for item in self.ee + self.worker_ee.get(worker_id, []):
             cmd.extend(["--ee", item])
-        for item in self.ak:
+        for item in self.ak + self.worker_ak.get(worker_id, []):
             cmd.extend(["--ak", item])
         if self.debug:
             cmd.append("--debug")
@@ -251,6 +268,12 @@ def main():
     ap.add_argument("--ae", action="append", default=[], help="Repeatable Harbor agent env KEY=VALUE")
     ap.add_argument("--ee", action="append", default=[], help="Repeatable Harbor environment env KEY=VALUE")
     ap.add_argument("--ak", action="append", default=[], help="Repeatable Harbor agent kwarg key=value")
+    ap.add_argument("--worker-ae", action="append", default=[],
+                    help="Repeatable per-worker agent env INDEX:KEY=VALUE")
+    ap.add_argument("--worker-ee", action="append", default=[],
+                    help="Repeatable per-worker environment env INDEX:KEY=VALUE")
+    ap.add_argument("--worker-ak", action="append", default=[],
+                    help="Repeatable per-worker agent kwarg INDEX:key=value")
     ap.add_argument("--precompute-all", action="store_true", help="Run every task/worker pair before CMA")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
@@ -274,7 +297,11 @@ def main():
     print(f"[liveclawbench] cached Qwen3-0.6B features dim={feats[0].shape[0]}", flush=True)
 
     job_root = Path(args.jobs_dir).expanduser().resolve()
+    worker_ae = parse_worker_env(args.worker_ae, len(workers))
+    worker_ee = parse_worker_env(args.worker_ee, len(workers))
+    worker_ak = parse_worker_env(args.worker_ak, len(workers))
     scorer = HarborScorer(root, workers, job_root, args.ae, args.ee, args.ak,
+                          worker_ae, worker_ee, worker_ak,
                           args.timeout_multiplier, args.harbor_bin, args.debug)
     scores = np.full((len(tasks), len(workers)), np.nan, dtype=np.float32)
 

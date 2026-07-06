@@ -497,18 +497,35 @@ task 3         0.5        0.0        1.0
 scripts/colab_liveclawbench_router.sh
 ```
 
-Colab 里可以这样跑：
+如果 worker 来自不同原生 provider，可以这样跑：
 
 ```bash
 !git clone https://github.com/luckfu/OpenFugu.git
 %cd OpenFugu
 
-!SLOT_MODELS="custom/model-a,custom/model-b" \
-  CUSTOM_BASE_URL="https://api.example.com/v1" \
-  CUSTOM_API_KEY="你的 API key" \
+!SLOT_MODELS="openai/gpt-4o,anthropic/claude-sonnet-4-5" \
+  OPENAI_API_KEY="你的 OpenAI key" \
+  ANTHROPIC_API_KEY="你的 Anthropic key" \
   N_TRAIN=8 \
   ITERS=12 \
   bash scripts/colab_liveclawbench_router.sh
+```
+
+如果多个 worker 都用 `custom/...`，但它们其实来自不同 OpenAI-compatible endpoint，就不能只靠一个 `CUSTOM_BASE_URL/CUSTOM_API_KEY`。这时用 `WORKER_AE` 按 slot 传：
+
+```bash
+!SLOT_MODELS="custom/model-a,custom/model-b" \
+  WORKER_AE="0:CUSTOM_BASE_URL=https://a.example.com/v1;0:CUSTOM_API_KEY=key-a;1:CUSTOM_BASE_URL=https://b.example.com/v1;1:CUSTOM_API_KEY=key-b" \
+  N_TRAIN=8 \
+  ITERS=12 \
+  bash scripts/colab_liveclawbench_router.sh
+```
+
+这里的意思是：
+
+```text
+slot 0 -> custom/model-a -> https://a.example.com/v1 + key-a
+slot 1 -> custom/model-b -> https://b.example.com/v1 + key-b
 ```
 
 这个脚本会做几件事：
@@ -527,8 +544,10 @@ Colab 里可以这样跑：
 | 变量 | 默认值 | 作用 |
 | --- | --- | --- |
 | `SLOT_MODELS` | `custom/model-a,custom/model-b` | worker slot 列表 |
-| `CUSTOM_BASE_URL` | 空 | OpenAI-compatible worker API 地址 |
-| `CUSTOM_API_KEY` | 空 | worker API key |
+| `CUSTOM_BASE_URL` | 空 | 全局 OpenAI-compatible worker API 地址 |
+| `CUSTOM_API_KEY` | 空 | 全局 worker API key |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 等 | 空 | 原生 provider worker 的 API key |
+| `WORKER_AE` | 空 | 按 slot 传 Harbor agent env，格式是 `0:KEY=VALUE;1:KEY=VALUE` |
 | `N_TRAIN` | `8` | 训练用 LiveClawBench 任务数 |
 | `ITERS` | `12` | CMA-ES 迭代次数 |
 | `DEVICE` | `cuda:0` | Qwen3-0.6B router backbone 运行设备 |
