@@ -19,6 +19,8 @@ checkpoints/
 *.key
 *_key*
 secrets*
+configs/liveclawbench_colab.yaml
+configs/my_workers.yaml
 
 # local outputs
 results/*.out
