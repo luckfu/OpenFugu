@@ -12,6 +12,9 @@
 #   using the per-worker CUSTOM_BASE_URL and CUSTOM_API_KEY below.
 # - The text after `custom/` is the model string sent to that provider.
 # - Keep worker order stable: slot 0 is the first worker, slot 1 the second, etc.
+# - Worker order is also the tie-break priority: if two workers have equal score
+#   or equal router logits, the lower slot index wins. Put cheaper/faster models
+#   before expensive reasoning models when they are equally acceptable.
 
 liveclawbench_dir: /content/LiveClawBench
 

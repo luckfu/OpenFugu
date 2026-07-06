@@ -550,6 +550,44 @@ slot 0 -> custom/model-a -> https://a.example.com/v1 + key-a
 slot 1 -> custom/model-b -> https://b.example.com/v1 + key-b
 ```
 
+这个顺序还有一个实际作用：**同分时的默认优先级**。
+
+当前实现里，选最大值用的是 `argmax`。如果两个 worker 在同一个任务上的历史分数一样，或者 router 最后给出的 logits 完全一样，`argmax` 会选索引更小的 slot：
+
+```text
+slot 0: 1.0
+slot 1: 1.0
+slot 2: 0.5
+
+最终选择 slot 0
+```
+
+所以建议把 worker 按这个原则排序：
+
+```text
+便宜/快/够用的模型
+  ↓
+中等成本强模型
+  ↓
+贵但强的 reasoning 模型
+```
+
+例如：
+
+```yaml
+workers:
+  - name: deepseek_chat        # slot 0，同分优先
+    model: custom/deepseek-chat
+
+  - name: zhipu_glm_5_2        # slot 1
+    model: custom/glm-5.2
+
+  - name: deepseek_reasoner    # slot 2，贵但强
+    model: custom/deepseek-reasoner
+```
+
+这不会阻止 router 在明显需要的时候选择贵模型；它只是在分数打平时，让系统默认选择更便宜/更快的 worker。
+
 这个脚本会做几件事：
 
 ```text
