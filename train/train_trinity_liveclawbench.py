@@ -19,12 +19,7 @@ fitness then reuses the cached matrix, so candidate evaluation is cheap.
 
 Example:
   python train/train_trinity_liveclawbench.py \
-    --liveclawbench-dir /path/to/LiveClawBench \
-    --router-model Qwen/Qwen3-0.6B \
-    --slot-models "custom/deepseek-chat,custom/qwen-plus" \
-    --ae CUSTOM_BASE_URL="$CUSTOM_BASE_URL" \
-    --ae CUSTOM_API_KEY="$CUSTOM_API_KEY" \
-    --n-train 8 --iters 12 --precompute-all
+    --config configs/liveclawbench_colab.example.yaml
 """
 from __future__ import annotations
 
@@ -53,6 +48,87 @@ def _load_toml(path: Path) -> dict:
         import tomli as tomllib
     with path.open("rb") as f:
         return tomllib.load(f)
+
+
+def _load_config(path: str | None) -> dict:
+    if not path:
+        return {}
+    p = Path(path).expanduser()
+    text = p.read_text(encoding="utf-8")
+    if p.suffix.lower() == ".json":
+        return json.loads(text)
+    try:
+        import yaml
+    except ImportError as e:
+        raise SystemExit("YAML config requires PyYAML. Install pyyaml or use a .json config.") from e
+    return yaml.safe_load(text) or {}
+
+
+def _kv_list(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, dict):
+        return [f"{k}={v}" for k, v in value.items() if v is not None]
+    raise TypeError(f"expected dict/list for env config, got {type(value).__name__}")
+
+
+def _pipe_list(value) -> str:
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value
+    return "|".join(str(x) for x in value)
+
+
+def _config_defaults(cfg: dict) -> dict:
+    if not cfg:
+        return {}
+
+    training = cfg.get("training") or {}
+    filters = cfg.get("filters") or {}
+    outputs = cfg.get("outputs") or {}
+    harbor = cfg.get("harbor") or {}
+    router = cfg.get("router") or {}
+
+    workers_cfg = cfg.get("workers") or []
+    slot_models = cfg.get("slot_models")
+    worker_ae, worker_ee, worker_ak = [], [], []
+    if workers_cfg:
+        slot_models = ",".join(str(w["model"]) for w in workers_cfg)
+        for i, w in enumerate(workers_cfg):
+            worker_ae.extend(f"{i}:{x}" for x in _kv_list(w.get("ae")))
+            worker_ee.extend(f"{i}:{x}" for x in _kv_list(w.get("ee")))
+            worker_ak.extend(f"{i}:{x}" for x in _kv_list(w.get("ak")))
+
+    out = {
+        "liveclawbench_dir": cfg.get("liveclawbench_dir"),
+        "router_model": router.get("model") or cfg.get("router_model"),
+        "slot_models": slot_models,
+        "n_train": training.get("n_train"),
+        "iters": training.get("iters"),
+        "sigma0": training.get("sigma0"),
+        "seed": training.get("seed"),
+        "device": router.get("device") or training.get("device"),
+        "domains": _pipe_list(filters.get("domains")),
+        "difficulties": _pipe_list(filters.get("difficulties")),
+        "include_regex": filters.get("include_regex"),
+        "jobs_dir": outputs.get("jobs_dir"),
+        "out": outputs.get("head"),
+        "matrix_out": outputs.get("matrix"),
+        "harbor_bin": harbor.get("bin"),
+        "timeout_multiplier": harbor.get("timeout_multiplier"),
+        "ae": _kv_list(harbor.get("ae") or cfg.get("ae")),
+        "ee": _kv_list(harbor.get("ee") or cfg.get("ee")),
+        "ak": _kv_list(harbor.get("ak") or cfg.get("ak")),
+        "worker_ae": worker_ae + _kv_list(cfg.get("worker_ae")),
+        "worker_ee": worker_ee + _kv_list(cfg.get("worker_ee")),
+        "worker_ak": worker_ak + _kv_list(cfg.get("worker_ak")),
+        "precompute_all": training.get("precompute_all"),
+        "debug": cfg.get("debug") if "debug" in cfg else harbor.get("debug"),
+    }
+    return {k: v for k, v in out.items() if v not in (None, [], "")}
 
 
 def _slug(s: str) -> str:
@@ -247,38 +323,65 @@ def write_matrix_csv(path: Path, tasks: list[dict], workers: list[str], scores: 
             w.writerow([task["name"], task["domain"], task["difficulty"], *[f"{x:.4f}" for x in scores[i]]])
 
 
-def main():
+def build_parser(defaults: dict | None = None):
+    defaults = defaults or {}
     ap = argparse.ArgumentParser(description="Train a TRINITY router head on LiveClawBench via Harbor rewards.")
-    ap.add_argument("--liveclawbench-dir", required=True, help="Path to a checked-out Mosi-AI/LiveClawBench repo")
-    ap.add_argument("--router-model", default=os.environ.get("FUGU_MODEL", "Qwen/Qwen3-0.6B"))
-    ap.add_argument("--slot-models", required=True, help="CSV of Harbor model ids, e.g. custom/a,openai/gpt-4o")
-    ap.add_argument("--n-train", type=int, default=8, help="Number of LiveClawBench tasks; 0 means all")
-    ap.add_argument("--domains", default="", help="Optional pipe-separated domain filter")
-    ap.add_argument("--difficulties", default="", help="Optional pipe-separated difficulty filter: easy|medium|hard")
-    ap.add_argument("--include-regex", default="", help="Optional regex over task directory names")
-    ap.add_argument("--iters", type=int, default=12)
-    ap.add_argument("--sigma0", type=float, default=0.3)
-    ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--device", default=None)
-    ap.add_argument("--jobs-dir", default="jobs/liveclawbench_router")
-    ap.add_argument("--out", default="trinity_liveclawbench.npy")
-    ap.add_argument("--matrix-out", default="liveclawbench_scores.csv")
-    ap.add_argument("--harbor-bin", default=os.environ.get("HARBOR_BIN", "harbor"))
-    ap.add_argument("--timeout-multiplier", type=float, default=1.0)
-    ap.add_argument("--ae", action="append", default=[], help="Repeatable Harbor agent env KEY=VALUE")
-    ap.add_argument("--ee", action="append", default=[], help="Repeatable Harbor environment env KEY=VALUE")
-    ap.add_argument("--ak", action="append", default=[], help="Repeatable Harbor agent kwarg key=value")
+    ap.add_argument("--config", help="YAML/JSON config file with workers and training options")
+    ap.add_argument("--liveclawbench-dir", default=defaults.get("liveclawbench_dir"),
+                    help="Path to a checked-out Mosi-AI/LiveClawBench repo")
+    ap.add_argument("--router-model", default=defaults.get("router_model") or os.environ.get("FUGU_MODEL", "Qwen/Qwen3-0.6B"))
+    ap.add_argument("--slot-models", default=defaults.get("slot_models"),
+                    help="CSV of Harbor model ids, e.g. custom/a,openai/gpt-4o")
+    ap.add_argument("--n-train", type=int, default=defaults.get("n_train", 8),
+                    help="Number of LiveClawBench tasks; 0 means all")
+    ap.add_argument("--domains", default=defaults.get("domains", ""), help="Optional pipe-separated domain filter")
+    ap.add_argument("--difficulties", default=defaults.get("difficulties", ""),
+                    help="Optional pipe-separated difficulty filter: easy|medium|hard")
+    ap.add_argument("--include-regex", default=defaults.get("include_regex", ""),
+                    help="Optional regex over task directory names")
+    ap.add_argument("--iters", type=int, default=defaults.get("iters", 12))
+    ap.add_argument("--sigma0", type=float, default=defaults.get("sigma0", 0.3))
+    ap.add_argument("--seed", type=int, default=defaults.get("seed", 42))
+    ap.add_argument("--device", default=defaults.get("device"))
+    ap.add_argument("--jobs-dir", default=defaults.get("jobs_dir", "jobs/liveclawbench_router"))
+    ap.add_argument("--out", default=defaults.get("out", "trinity_liveclawbench.npy"))
+    ap.add_argument("--matrix-out", default=defaults.get("matrix_out", "liveclawbench_scores.csv"))
+    ap.add_argument("--harbor-bin", default=defaults.get("harbor_bin") or os.environ.get("HARBOR_BIN", "harbor"))
+    ap.add_argument("--timeout-multiplier", type=float, default=defaults.get("timeout_multiplier", 1.0))
+    ap.add_argument("--ae", action="append", default=defaults.get("ae", []),
+                    help="Repeatable Harbor agent env KEY=VALUE")
+    ap.add_argument("--ee", action="append", default=defaults.get("ee", []),
+                    help="Repeatable Harbor environment env KEY=VALUE")
+    ap.add_argument("--ak", action="append", default=defaults.get("ak", []),
+                    help="Repeatable Harbor agent kwarg key=value")
     ap.add_argument("--worker-ae", action="append", default=[],
                     help="Repeatable per-worker agent env INDEX:KEY=VALUE")
     ap.add_argument("--worker-ee", action="append", default=[],
                     help="Repeatable per-worker environment env INDEX:KEY=VALUE")
     ap.add_argument("--worker-ak", action="append", default=[],
                     help="Repeatable per-worker agent kwarg INDEX:key=value")
-    ap.add_argument("--precompute-all", action="store_true", help="Run every task/worker pair before CMA")
-    ap.add_argument("--debug", action="store_true")
-    args = ap.parse_args()
+    ap.set_defaults(worker_ae=defaults.get("worker_ae", []),
+                    worker_ee=defaults.get("worker_ee", []),
+                    worker_ak=defaults.get("worker_ak", []))
+    ap.add_argument("--precompute-all", action="store_true", default=bool(defaults.get("precompute_all", False)),
+                    help="Run every task/worker pair before CMA")
+    ap.add_argument("--debug", action="store_true", default=bool(defaults.get("debug", False)))
+    return ap
+
+
+def main():
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config")
+    pre_args, _ = pre.parse_known_args()
+    cfg = _load_config(pre_args.config)
+    args = build_parser(_config_defaults(cfg)).parse_args()
 
     import cma
+
+    if not args.liveclawbench_dir:
+        raise SystemExit("--liveclawbench-dir is required unless provided by --config")
+    if not args.slot_models:
+        raise SystemExit("--slot-models is required unless workers/slot_models are provided by --config")
 
     root = Path(args.liveclawbench_dir).expanduser().resolve()
     workers = [x.strip() for x in args.slot_models.split(",") if x.strip()]

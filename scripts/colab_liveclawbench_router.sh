@@ -7,9 +7,7 @@ set -euo pipefail
 # Typical Colab usage:
 #   !git clone https://github.com/luckfu/OpenFugu.git
 #   %cd OpenFugu
-#   !SLOT_MODELS="openai/gpt-4o,anthropic/claude-sonnet-4-5" \
-#     OPENAI_API_KEY="..." \
-#     ANTHROPIC_API_KEY="..." \
+#   !CONFIG_FILE=configs/liveclawbench_colab.example.yaml \
 #     bash scripts/colab_liveclawbench_router.sh
 #
 # If multiple custom/... workers need different endpoints:
@@ -19,7 +17,8 @@ set -euo pipefail
 # runtimes do not expose a working Docker daemon; this script checks that early.
 
 OPENFUGU_DIR="${OPENFUGU_DIR:-$(pwd)}"
-LIVECLAWBENCH_DIR="${LIVECLAWBENCH_DIR:-/content/LiveClawBench}"
+CONFIG_FILE="${CONFIG_FILE:-}"
+LIVECLAWBENCH_DIR="${LIVECLAWBENCH_DIR:-}"
 LIVECLAWBENCH_REPO="${LIVECLAWBENCH_REPO:-https://github.com/Mosi-AI/LiveClawBench.git}"
 
 SLOT_MODELS="${SLOT_MODELS:-custom/model-a,custom/model-b}"
@@ -60,9 +59,41 @@ die() {
 
 cd "$OPENFUGU_DIR"
 
+if [[ -n "$CONFIG_FILE" && -z "$LIVECLAWBENCH_DIR" ]]; then
+  LIVECLAWBENCH_DIR="$(python - "$CONFIG_FILE" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+if not path.exists():
+    print("")
+    raise SystemExit
+text = path.read_text()
+if path.suffix.lower() == ".json":
+    cfg = json.loads(text)
+else:
+    try:
+        import yaml
+        cfg = yaml.safe_load(text) or {}
+    except Exception:
+        cfg = {}
+        for line in text.splitlines():
+            if line.strip().startswith("liveclawbench_dir:"):
+                cfg["liveclawbench_dir"] = line.split(":", 1)[1].strip().strip('"').strip("'")
+                break
+print(cfg.get("liveclawbench_dir") or "")
+PY
+)"
+fi
+LIVECLAWBENCH_DIR="${LIVECLAWBENCH_DIR:-/content/LiveClawBench}"
+
 log "OpenFugu dir: $OPENFUGU_DIR"
+if [[ -n "$CONFIG_FILE" ]]; then
+  log "Config file: $CONFIG_FILE"
+fi
 log "LiveClawBench dir: $LIVECLAWBENCH_DIR"
-log "Slot models: $SLOT_MODELS"
+if [[ -z "$CONFIG_FILE" ]]; then
+  log "Slot models: $SLOT_MODELS"
+fi
 
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi || true
@@ -174,26 +205,37 @@ if [[ "$PRECOMPUTE_ALL" == "1" || "$PRECOMPUTE_ALL" == "true" || "$PRECOMPUTE_AL
 fi
 
 log "Starting LiveClawBench router training"
-python train/train_trinity_liveclawbench.py \
-  --liveclawbench-dir "$LIVECLAWBENCH_DIR" \
-  --router-model "$FUGU_MODEL" \
-  --slot-models "$SLOT_MODELS" \
-  --n-train "$N_TRAIN" \
-  --iters "$ITERS" \
-  --sigma0 "$SIGMA0" \
-  --seed "$SEED" \
-  --device "$DEVICE" \
-  --jobs-dir "$JOBS_DIR" \
-  --out "$OUT_HEAD" \
-  --matrix-out "$MATRIX_OUT" \
-  --harbor-bin "$HARBOR_BIN" \
-  --timeout-multiplier "$TIMEOUT_MULTIPLIER" \
-  "${AE_ARGS[@]}" \
-  "${WORKER_ARGS[@]}" \
-  "${FILTER_ARGS[@]}" \
-  "${PRECOMPUTE_ARGS[@]}"
+if [[ -n "$CONFIG_FILE" ]]; then
+  python train/train_trinity_liveclawbench.py \
+    --config "$CONFIG_FILE" \
+    --liveclawbench-dir "$LIVECLAWBENCH_DIR" \
+    --harbor-bin "$HARBOR_BIN"
+else
+  python train/train_trinity_liveclawbench.py \
+    --liveclawbench-dir "$LIVECLAWBENCH_DIR" \
+    --router-model "$FUGU_MODEL" \
+    --slot-models "$SLOT_MODELS" \
+    --n-train "$N_TRAIN" \
+    --iters "$ITERS" \
+    --sigma0 "$SIGMA0" \
+    --seed "$SEED" \
+    --device "$DEVICE" \
+    --jobs-dir "$JOBS_DIR" \
+    --out "$OUT_HEAD" \
+    --matrix-out "$MATRIX_OUT" \
+    --harbor-bin "$HARBOR_BIN" \
+    --timeout-multiplier "$TIMEOUT_MULTIPLIER" \
+    "${AE_ARGS[@]}" \
+    "${WORKER_ARGS[@]}" \
+    "${FILTER_ARGS[@]}" \
+    "${PRECOMPUTE_ARGS[@]}"
+fi
 
 log "Done"
-log "Trained head: $OUT_HEAD"
-log "Score matrix: $MATRIX_OUT"
-log "Harbor jobs/cache: $JOBS_DIR"
+if [[ -z "$CONFIG_FILE" ]]; then
+  log "Trained head: $OUT_HEAD"
+  log "Score matrix: $MATRIX_OUT"
+  log "Harbor jobs/cache: $JOBS_DIR"
+else
+  log "Output paths are controlled by $CONFIG_FILE"
+fi

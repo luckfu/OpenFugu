@@ -1,0 +1,82 @@
+# OpenFugu LiveClawBench router training config.
+#
+# Colab:
+#   !git pull
+#   !CONFIG_FILE=configs/liveclawbench_colab.example.yaml bash scripts/colab_liveclawbench_router.sh
+#
+# For real use, copy this file and replace the placeholder models/keys:
+#   cp configs/liveclawbench_colab.example.yaml configs/my_workers.yaml
+#   edit configs/my_workers.yaml
+#   !CONFIG_FILE=configs/my_workers.yaml bash scripts/colab_liveclawbench_router.sh
+
+liveclawbench_dir: /content/LiveClawBench
+
+router:
+  # The Colab wrapper downloads this if needed. You can also put a local HF
+  # snapshot path here.
+  model: Qwen/Qwen3-0.6B
+  device: cuda:0
+
+training:
+  n_train: 8
+  iters: 12
+  sigma0: 0.3
+  seed: 42
+  precompute_all: true
+
+filters:
+  # Leave empty to sample from all tasks.
+  # domains:
+  #   - Coding & Software Dev
+  #   - DevOps & Env Repair
+  # difficulties:
+  #   - easy
+  #   - medium
+  include_regex:
+
+outputs:
+  head: /content/trinity_liveclawbench.npy
+  matrix: /content/liveclawbench_scores.csv
+  jobs_dir: /content/openfugu_liveclawbench_jobs
+
+harbor:
+  timeout_multiplier: 1.0
+  # Global agent env visible to every worker. Use this when all custom/ workers
+  # share one gateway, or when using native provider prefixes with their normal
+  # API keys.
+  ae:
+    # OPENAI_API_KEY: sk-...
+    # ANTHROPIC_API_KEY: sk-ant-...
+    # CUSTOM_CONTEXT_WINDOW: 128000
+    # CUSTOM_MAX_TOKENS: 4096
+    # CUSTOM_REASONING: "false"
+
+workers:
+  # Native provider example. This worker reads OPENAI_API_KEY from harbor.ae.
+  - name: gpt
+    model: openai/gpt-4o
+
+  # Another native provider example. This worker reads ANTHROPIC_API_KEY from
+  # harbor.ae.
+  - name: claude
+    model: anthropic/claude-sonnet-4-5
+
+  # Per-worker custom endpoint example. This is the important case when
+  # different custom/... slots need different base URLs or API keys.
+  - name: custom_a
+    model: custom/model-a
+    ae:
+      CUSTOM_BASE_URL: https://a.example.com/v1
+      CUSTOM_API_KEY: replace-with-key-a
+      CUSTOM_CONTEXT_WINDOW: 128000
+      CUSTOM_MAX_TOKENS: 4096
+      CUSTOM_REASONING: "false"
+
+  - name: custom_b
+    model: custom/model-b
+    ae:
+      CUSTOM_BASE_URL: https://b.example.com/v1
+      CUSTOM_API_KEY: replace-with-key-b
+      CUSTOM_CONTEXT_WINDOW: 128000
+      CUSTOM_MAX_TOKENS: 4096
+      CUSTOM_REASONING: "false"

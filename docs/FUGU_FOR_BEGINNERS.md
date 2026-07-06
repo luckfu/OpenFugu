@@ -497,31 +497,53 @@ task 3         0.5        0.0        1.0
 scripts/colab_liveclawbench_router.sh
 ```
 
-如果 worker 来自不同原生 provider，可以这样跑：
+推荐做法是先复制一份配置文件，把多个 worker 都写进去：
 
 ```bash
 !git clone https://github.com/luckfu/OpenFugu.git
 %cd OpenFugu
 
-!SLOT_MODELS="openai/gpt-4o,anthropic/claude-sonnet-4-5" \
-  OPENAI_API_KEY="你的 OpenAI key" \
-  ANTHROPIC_API_KEY="你的 Anthropic key" \
-  N_TRAIN=8 \
-  ITERS=12 \
-  bash scripts/colab_liveclawbench_router.sh
+!cp configs/liveclawbench_colab.example.yaml configs/my_workers.yaml
 ```
 
-如果多个 worker 都用 `custom/...`，但它们其实来自不同 OpenAI-compatible endpoint，就不能只靠一个 `CUSTOM_BASE_URL/CUSTOM_API_KEY`。这时用 `WORKER_AE` 按 slot 传：
+然后编辑：
 
 ```bash
-!SLOT_MODELS="custom/model-a,custom/model-b" \
-  WORKER_AE="0:CUSTOM_BASE_URL=https://a.example.com/v1;0:CUSTOM_API_KEY=key-a;1:CUSTOM_BASE_URL=https://b.example.com/v1;1:CUSTOM_API_KEY=key-b" \
-  N_TRAIN=8 \
-  ITERS=12 \
-  bash scripts/colab_liveclawbench_router.sh
+configs/my_workers.yaml
 ```
 
-这里的意思是：
+配置文件里可以写多个 worker：
+
+```yaml
+workers:
+  - name: gpt
+    model: openai/gpt-4o
+
+  - name: claude
+    model: anthropic/claude-sonnet-4-5
+
+  - name: custom_a
+    model: custom/model-a
+    ae:
+      CUSTOM_BASE_URL: https://a.example.com/v1
+      CUSTOM_API_KEY: key-a
+
+  - name: custom_b
+    model: custom/model-b
+    ae:
+      CUSTOM_BASE_URL: https://b.example.com/v1
+      CUSTOM_API_KEY: key-b
+```
+
+这样每个 slot 的 endpoint 和 key 都能单独配置，不需要把所有 worker 硬塞进同一个 `CUSTOM_BASE_URL/CUSTOM_API_KEY`。
+
+编辑好以后，一把跑起训练：
+
+```bash
+!CONFIG_FILE=configs/my_workers.yaml bash scripts/colab_liveclawbench_router.sh
+```
+
+这里的 slot 顺序就是 YAML 里的 `workers` 顺序：
 
 ```text
 slot 0 -> custom/model-a -> https://a.example.com/v1 + key-a
@@ -543,6 +565,7 @@ slot 1 -> custom/model-b -> https://b.example.com/v1 + key-b
 
 | 变量 | 默认值 | 作用 |
 | --- | --- | --- |
+| `CONFIG_FILE` | 空 | 推荐入口，指定 YAML/JSON 配置文件 |
 | `SLOT_MODELS` | `custom/model-a,custom/model-b` | worker slot 列表 |
 | `CUSTOM_BASE_URL` | 空 | 全局 OpenAI-compatible worker API 地址 |
 | `CUSTOM_API_KEY` | 空 | 全局 worker API key |
