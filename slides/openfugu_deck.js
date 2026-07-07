@@ -33,6 +33,35 @@ const H = 5.625;
 const font = "Microsoft YaHei";
 const root = path.resolve(__dirname, "..");
 const img = (name) => path.join(root, "assets", name);
+const imgMeta = {
+  "01_routing.png": { w: 836, h: 102 },
+  "02_svf.png": { w: 719, h: 88 },
+  "03_paramvec.png": { w: 651, h: 89 },
+  "04_sepcma.png": { w: 890, h: 44 },
+  "05_grpo.png": { w: 662, h: 87 },
+};
+
+function addImageContain(slide, name, x, y, w, h, opts = {}) {
+  const meta = imgMeta[name];
+  const ratio = meta.w / meta.h;
+  let iw = w;
+  let ih = w / ratio;
+  if (ih > h) {
+    ih = h;
+    iw = h * ratio;
+  }
+  const ix = x + (w - iw) / 2;
+  const iy = y + (h - ih) / 2;
+  if (opts.frame) {
+    slide.addShape(S.roundRect, {
+      x, y, w, h, rectRadius: 0.06,
+      fill: { color: opts.fill || C.soft },
+      line: { color: opts.line || C.line, transparency: 10 },
+    });
+  }
+  slide.addImage({ path: img(name), x: ix, y: iy, w: iw, h: ih });
+  return { x: ix, y: iy, w: iw, h: ih };
+}
 
 function slideBase(slide, idx, title, kicker) {
   slide.background = { color: C.paper };
@@ -103,15 +132,13 @@ function addBar(slide, label, value, x, y, w, color, suffix = "") {
   const slide = pptx.addSlide();
   slide.background = { color: C.navy };
   slide.addShape(S.rect, { x: 0, y: 0, w: W, h: H, fill: { color: C.navy }, line: { color: C.navy } });
-  slide.addShape(S.rect, { x: 6.55, y: 0, w: 3.45, h: H, fill: { color: C.teal, transparency: 8 }, line: { color: C.teal, transparency: 100 } });
-  slide.addShape(S.rect, { x: 6.85, y: 0.55, w: 2.35, h: 4.55, fill: { color: C.paper, transparency: 4 }, line: { color: C.paper, transparency: 80 } });
   slide.addText("OpenFugu", { x: 0.62, y: 1.12, w: 4.5, h: 0.78, fontFace: "Arial", fontSize: 44, color: C.paper, bold: true, margin: 0 });
   slide.addText("原理、性能优势与训练成本", { x: 0.62, y: 1.96, w: 5.2, h: 0.42, fontFace: font, fontSize: 22, color: C.gold, bold: true, margin: 0 });
-  slide.addText("把 Qwen3-0.6B 从回答者变成 learned router，让合适的问题交给合适的 worker 模型。", { x: 0.66, y: 2.62, w: 5.3, h: 0.58, fontFace: font, fontSize: 13.5, color: "F7F7F7", margin: 0.02, fit: "shrink" });
-  addPill(slide, "TRINITY / Fugu line", 0.66, 3.55, 1.45, C.teal);
-  addPill(slide, "SVF + Linear Head", 2.25, 3.55, 1.55, C.gold, C.ink);
-  addPill(slide, "LiveClawBench", 3.95, 3.55, 1.25, C.red);
-  slide.addImage({ path: img("01_routing.png"), x: 6.72, y: 0.78, w: 2.62, h: 3.65 });
+  slide.addText("把 Qwen3-0.6B 从回答者变成 learned router，让合适的问题交给合适的 worker 模型。", { x: 0.66, y: 2.58, w: 7.5, h: 0.42, fontFace: font, fontSize: 13.5, color: "F7F7F7", margin: 0.02, fit: "shrink" });
+  addPill(slide, "TRINITY / Fugu line", 0.66, 3.25, 1.45, C.teal);
+  addPill(slide, "SVF + Linear Head", 2.25, 3.25, 1.55, C.gold, C.ink);
+  addPill(slide, "LiveClawBench", 3.95, 3.25, 1.25, C.red);
+  addImageContain(slide, "01_routing.png", 0.68, 3.85, 8.65, 1.08, { frame: true, fill: "FFFFFF" });
   slide.addText("2026 · 技术说明", { x: 0.66, y: 4.92, w: 2.8, h: 0.18, fontFace: font, fontSize: 9, color: C.line, margin: 0 });
 }
 
@@ -160,7 +187,7 @@ function addBar(slide, label, value, x, y, w, color, suffix = "") {
   addFlowNode(slide, 6.95, 2.72, 1.25, 0.72, "Worker 2", "推理/代码", C.navy);
   addArrow(slide, 8.28, 2.0, 8.82, 2.0);
   addFlowNode(slide, 8.9, 1.55, 0.75, 0.9, "答案", "返回给用户", C.slate);
-  slide.addImage({ path: img("01_routing.png"), x: 0.75, y: 3.55, w: 8.55, h: 1.28 });
+  addImageContain(slide, "01_routing.png", 0.75, 3.58, 8.55, 1.08, { frame: true, fill: "FFFFFF" });
   slide.addText("关键点：worker 权重不被修改，OpenFugu 学的是“什么时候叫谁”。", { x: 0.72, y: 4.95, w: 8.2, h: 0.22, fontFace: font, fontSize: 10.5, color: C.muted, margin: 0 });
 }
 
@@ -179,10 +206,10 @@ function addBar(slide, label, value, x, y, w, color, suffix = "") {
 {
   const slide = pptx.addSlide();
   slideBase(slide, 6, "参数改造：19,456 个数，而不是全量微调 0.6B", "Parameters");
-  slide.addImage({ path: img("03_paramvec.png"), x: 0.55, y: 1.15, w: 4.15, h: 3.45 });
-  addCard(slide, 5.05, 1.12, 4.35, 0.92, "SVF offsets：9,216", "9 个矩阵 × 1024 个奇异值偏移；轻量改变表示空间。", C.teal);
-  addCard(slide, 5.05, 2.25, 4.35, 0.92, "Linear head：10,240", "(7 worker + 3 role) × 1024；把 hidden state 映射为路由分数。", C.gold);
-  addCard(slide, 5.05, 3.38, 4.35, 0.92, "部署含义", "训练 head 可以很轻；换 worker 池时，通常先 head-only 校准。", C.red);
+  addImageContain(slide, "03_paramvec.png", 0.68, 1.12, 8.65, 1.18, { frame: true, fill: "FFFFFF" });
+  addCard(slide, 0.72, 2.75, 2.75, 1.42, "SVF offsets：9,216", "9 个矩阵 × 1024 个奇异值偏移；轻量改变表示空间。", C.teal);
+  addCard(slide, 3.68, 2.75, 2.75, 1.42, "Linear head：10,240", "(7 worker + 3 role) × 1024；把 hidden state 映射为路由分数。", C.gold);
+  addCard(slide, 6.65, 2.75, 2.75, 1.42, "部署含义", "训练 head 可以很轻；换 worker 池时，通常先 head-only 校准。", C.red);
   slide.addText("总参数量约 19.5K，远低于 LoRA/全参微调；这也是可以用 CMA-ES 搜索的原因。", { x: 0.72, y: 4.95, w: 8.5, h: 0.22, fontFace: font, fontSize: 10.2, color: C.muted, margin: 0 });
 }
 
@@ -190,15 +217,15 @@ function addBar(slide, label, value, x, y, w, color, suffix = "") {
 {
   const slide = pptx.addSlide();
   slideBase(slide, 7, "SVF：只调整权重矩阵的奇异值强度", "SVF");
-  slide.addImage({ path: img("02_svf.png"), x: 0.6, y: 1.05, w: 4.1, h: 3.75 });
-  slide.addText("W = U · S · Vᵀ", { x: 5.25, y: 1.35, w: 3.6, h: 0.34, fontFace: "Cambria", fontSize: 22, color: C.slate, bold: true, margin: 0 });
-  slide.addText("S' = S × (1 + offset)", { x: 5.25, y: 2.05, w: 3.8, h: 0.34, fontFace: "Cambria", fontSize: 22, color: C.teal, bold: true, margin: 0 });
+  addImageContain(slide, "02_svf.png", 0.68, 1.10, 8.65, 1.06, { frame: true, fill: "FFFFFF" });
+  slide.addText("W = U · S · Vᵀ", { x: 0.95, y: 2.65, w: 3.6, h: 0.34, fontFace: "Cambria", fontSize: 22, color: C.slate, bold: true, margin: 0 });
+  slide.addText("S' = S × (1 + offset)", { x: 0.95, y: 3.35, w: 3.8, h: 0.34, fontFace: "Cambria", fontSize: 22, color: C.teal, bold: true, margin: 0 });
   bulletList(slide, [
     "冻结 U/V，只学习奇异值缩放",
     "0 offset 等于原始 Qwen 权重",
     "能改变表示空间，但不会重写整个模型",
     "适合把 backbone 调成“路由特征提取器”",
-  ], 5.35, 2.85, 3.75, 1.3, { size: 10.2, space: 4 });
+  ], 5.05, 2.65, 4.0, 1.25, { size: 10.2, space: 4 });
 }
 
 // 08 Training
@@ -214,8 +241,8 @@ function addBar(slide, label, value, x, y, w, color, suffix = "") {
   addFlowNode(slide, 6.88, 1.28, 1.35, 0.85, "Reward", "0~1 分数", C.red);
   addArrow(slide, 8.23, 1.7, 8.72, 1.7);
   addFlowNode(slide, 8.78, 1.28, 0.72, 0.85, "更新", "CMA", C.navy);
-  slide.addImage({ path: img("04_sepcma.png"), x: 0.72, y: 2.72, w: 4.2, h: 1.95 });
-  addCard(slide, 5.25, 2.72, 3.9, 1.95, "为什么不用普通反向传播？", "worker 可能是外部 API；reward 可能来自执行环境/verifier；信号稀疏且不可微。因此用 sep-CMA-ES 这类黑盒优化更自然。", C.teal);
+  addImageContain(slide, "04_sepcma.png", 0.72, 2.62, 8.55, 0.72, { frame: true, fill: "FFFFFF" });
+  addCard(slide, 1.05, 3.62, 7.9, 1.1, "为什么不用普通反向传播？", "worker 可能是外部 API；reward 可能来自执行环境/verifier；信号稀疏且不可微。因此用 sep-CMA-ES 这类黑盒优化更自然。", C.teal);
 }
 
 // 09 LiveClawBench
