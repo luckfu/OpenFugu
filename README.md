@@ -64,6 +64,7 @@ python train/train_trinity_liveclawbench.py --liveclawbench-dir <LiveClawBench d
 
 # EVAL DATA: TRAJECT-Bench tool-call trajectories for step-level router data
 # Full Chinese runbook: docs/TRAJECTBENCH_RUNBOOK.md
+# Cloud end-to-end runbook: docs/CLOUD_TRAJECTBENCH_PIPELINE.md
 cp configs/trajectbench.example.yaml configs/trajectbench.yaml
 # edit configs/trajectbench.yaml; put API keys in env vars, not in git
 DRY_RUN=1 CONFIG_FILE=configs/trajectbench.yaml bash scripts/prepare_trajectbench.sh
@@ -71,6 +72,8 @@ CONFIG_FILE=configs/trajectbench.yaml bash scripts/prepare_trajectbench.sh
 # outputs: predictions JSONL, scores CSV, and step samples JSONL
 # TRAIN on GPU/Colab from committed TRAJECT-Bench artifacts
 CONFIG_FILE=configs/trajectbench.example.yaml bash scripts/colab_trajectbench_router.sh
+# Full cloud pipeline: evaluate -> retry -> recompute -> train
+CONFIG_FILE=configs/trajectbench.yaml bash scripts/cloud_trajectbench_full_pipeline.sh
 
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # mock: +9% over one-shot (toy policy w/ headroom)
