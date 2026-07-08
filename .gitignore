@@ -22,9 +22,13 @@ checkpoints/
 secrets*
 configs/liveclawbench_colab.yaml
 configs/my_workers.yaml
+configs/trajectbench.yaml
 
 # local outputs
 results/*.out
 *.log
 conductor_*_out/
 conductor_toolscale_*/
+
+# local benchmark checkouts
+TRAJECT-Bench/

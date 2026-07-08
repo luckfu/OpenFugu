@@ -62,6 +62,16 @@ python train/train_trinity_liveclawbench.py --liveclawbench-dir <LiveClawBench d
   --ae CUSTOM_BASE_URL="$CUSTOM_BASE_URL" --ae CUSTOM_API_KEY="$CUSTOM_API_KEY" \
   --n-train 8 --iters 12 --precompute-all
 
+# EVAL DATA: TRAJECT-Bench tool-call trajectories for step-level router data
+# Full Chinese runbook: docs/TRAJECTBENCH_RUNBOOK.md
+cp configs/trajectbench.example.yaml configs/trajectbench.yaml
+# edit configs/trajectbench.yaml; put API keys in env vars, not in git
+DRY_RUN=1 CONFIG_FILE=configs/trajectbench.yaml bash scripts/prepare_trajectbench.sh
+CONFIG_FILE=configs/trajectbench.yaml bash scripts/prepare_trajectbench.sh
+# outputs: predictions JSONL, scores CSV, and step samples JSONL
+# TRAIN on GPU/Colab from committed TRAJECT-Bench artifacts
+CONFIG_FILE=configs/trajectbench.example.yaml bash scripts/colab_trajectbench_router.sh
+
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # mock: +9% over one-shot (toy policy w/ headroom)
 python train/train_recursion_real.py      # REAL recursion (round-0 fed back into round-1)

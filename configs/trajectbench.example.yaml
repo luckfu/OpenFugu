@@ -1,0 +1,101 @@
+# OpenFugu TRAJECT-Bench worker evaluation config.
+#
+# Usage:
+#   cp configs/trajectbench.example.yaml configs/trajectbench.yaml
+#   edit configs/trajectbench.yaml
+#   CONFIG_FILE=configs/trajectbench.yaml bash scripts/prepare_trajectbench.sh
+#
+# Worker order is the tie-break priority for later router training. Put cheaper
+# or faster models before expensive reasoning models when their quality is equal.
+
+trajectbench:
+  repo: https://github.com/PengfeiHePower/TRAJECT-Bench.git
+  dir: TRAJECT-Bench
+
+router:
+  model: Qwen/Qwen3-0.6B
+  device: cuda:0
+
+training:
+  n_train: 0
+  iters: 20
+  sigma0: 0.3
+  seed: 42
+
+evaluation:
+  # Good first smoke test:
+  #   trajectory_types: [parallel]
+  #   trajectory_files: [simple_ver]
+  #   domains: [Travel]
+  #   max_samples_per_domain: 3
+  trajectory_types:
+    - parallel
+    - sequential
+  trajectory_files:
+    - simple_ver
+    - hard_ver
+    - traj_query
+  domains:
+    - Travel
+    - Weather
+    - Finance
+    - Mapping
+    - Music
+    - News_Media
+    - Education
+    - Email
+    - Gaming
+    - eCommerce
+  max_samples_per_domain: 5
+  seed: 42
+  temperature: 0
+  max_tokens: 4096
+  sleep_seconds: 0.2
+  concurrency: 3
+  request_timeout: 120
+  progress_every: 10
+
+outputs:
+  dir: openfugu_trajectbench
+  predictions_jsonl: openfugu_trajectbench/trajectbench_predictions.jsonl
+  scores_csv: openfugu_trajectbench/trajectbench_scores.csv
+  step_samples_jsonl: openfugu_trajectbench/trajectbench_step_samples.jsonl
+  trajectbench_head: openfugu_trajectbench/trinity_trajectbench.npy
+  trajectbench_matrix: openfugu_trajectbench/trajectbench_step_matrix.csv
+
+workers:
+  # -------------------------
+  # DeepSeek official API
+  # -------------------------
+  - name: deepseek-v4-flash
+    model: openai/deepseek-chat
+    api_base: https://api.deepseek.com/v1
+    api_key: env:DEEPSEEK_API_KEY
+
+  - name: zhipu_glm_4_7
+    model: openai/glm-4.7
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key: env:ZHIPU_API_KEY
+
+  - name: zhipu_glm_5_turbo
+    model: openai/glm-5-turbo
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key: env:ZHIPU_API_KEY
+
+  - name: deepseek-v4-pro
+    model: openai/deepseek-v4-pro
+    api_base: https://api.deepseek.com/v1
+    api_key: env:DEEPSEEK_API_KEY
+
+  # -------------------------
+  # Zhipu official API
+  # -------------------------
+  - name: zhipu_glm_5_1
+    model: openai/glm-5.1
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key: env:ZHIPU_API_KEY
+
+  - name: zhipu_glm_5_2
+    model: openai/glm-5.2
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key: env:ZHIPU_API_KEY
