@@ -15,21 +15,21 @@ log() {
 }
 
 cd "$OPENFUGU_DIR"
-log "OpenFugu dir: $OPENFUGU_DIR"
-log "Config file: $CONFIG_FILE"
+log "OpenFugu 目录: $OPENFUGU_DIR"
+log "配置文件: $CONFIG_FILE"
 
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi || true
 else
-  log "nvidia-smi not found; Qwen feature extraction will be slow without GPU."
+  log "未找到 nvidia-smi；没有 GPU 时 Qwen 特征提取会比较慢。"
 fi
 
-log "Installing training dependencies"
+log "安装训练依赖"
 python -m pip install -U pip
 python -m pip install -r requirements.txt
 
 if [[ -z "${FUGU_MODEL:-}" ]]; then
-  log "Resolving Qwen/Qwen3-0.6B snapshot path"
+  log "解析 Qwen/Qwen3-0.6B 快照路径"
   FUGU_MODEL="$(python - <<'PY'
 from huggingface_hub import snapshot_download
 print(snapshot_download("Qwen/Qwen3-0.6B"))
@@ -39,9 +39,9 @@ PY
 fi
 log "FUGU_MODEL=$FUGU_MODEL"
 
-log "Training TRAJECT-Bench router"
+log "开始训练 TRAJECT-Bench router"
 python train/train_trinity_trajectbench.py \
   --config "$CONFIG_FILE" \
   --router-model "$FUGU_MODEL"
 
-log "Done"
+log "完成"

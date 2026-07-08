@@ -190,16 +190,16 @@ def main() -> int:
     import cma
 
     tasks, mat = load_step_matrix(args.step_samples, workers, not args.allow_incomplete, args.seed, args.n_train)
-    print(f"[traject-train] step contexts={len(tasks)} workers={workers}", flush=True)
-    print("[traject-train] per-worker mean: " + ", ".join(
+    print(f"[traject-train] 步骤上下文数量={len(tasks)} worker={workers}", flush=True)
+    print("[traject-train] 各 worker 平均分: " + ", ".join(
         f"{w}={float(np.mean(mat[:, i])):.4f}" for i, w in enumerate(workers)
     ), flush=True)
     write_matrix(args.matrix_out, tasks, workers, mat)
-    print(f"[traject-train] wrote matrix {args.matrix_out}", flush=True)
+    print(f"[traject-train] 已写出训练矩阵: {args.matrix_out}", flush=True)
 
     bb = Backbone(args.router_model, device=args.device)
     feats = [bb.feature(step_prompt(row)) for row in tasks]
-    print(f"[traject-train] cached features dim={feats[0].shape[0]}", flush=True)
+    print(f"[traject-train] 已缓存 Qwen 特征，维度={feats[0].shape[0]}", flush=True)
 
     n_workers = len(workers)
     dim = n_workers * HIDDEN
@@ -215,7 +215,7 @@ def main() -> int:
     base_fit = fitness(zero)
     best_single = float(np.max(np.mean(mat, axis=0)))
     oracle = float(np.mean(np.max(mat, axis=1)))
-    print(f"[baseline] zero={base_fit:.4f} best_single={best_single:.4f} oracle={oracle:.4f}", flush=True)
+    print(f"[基线] zero={base_fit:.4f} 最佳单模型={best_single:.4f} 理论上限={oracle:.4f}", flush=True)
 
     es = cma.CMAEvolutionStrategy(zero, args.sigma0,
                                   {"seed": args.seed, "verbose": -9, "CMA_diagonal": True})
@@ -227,12 +227,12 @@ def main() -> int:
         j = int(np.argmax(fits))
         if fits[j] > best_fit:
             best_fit, best_vec = float(fits[j]), cands[j].copy()
-        print(f"[iter {it}] best_score={best_fit:.4f} (best_single {best_single:.4f}, oracle {oracle:.4f})", flush=True)
+        print(f"[迭代 {it}] 当前最佳={best_fit:.4f} (最佳单模型 {best_single:.4f}, 理论上限 {oracle:.4f})", flush=True)
 
     Path(args.out).expanduser().parent.mkdir(parents=True, exist_ok=True)
     np.save(args.out, best_vec)
-    print(f"[result] saved head {args.out}")
-    print(f"[result] score={best_fit:.4f} best_single={best_single:.4f} oracle={oracle:.4f}")
+    print(f"[结果] 已保存 router head: {args.out}")
+    print(f"[结果] 训练分数={best_fit:.4f} 最佳单模型={best_single:.4f} 理论上限={oracle:.4f}")
     return 0
 
 

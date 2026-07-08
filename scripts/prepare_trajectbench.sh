@@ -14,10 +14,10 @@ log() {
 }
 
 cd "$OPENFUGU_DIR"
-log "OpenFugu dir: $OPENFUGU_DIR"
-log "Config file: $CONFIG_FILE"
+log "OpenFugu 目录: $OPENFUGU_DIR"
+log "配置文件: $CONFIG_FILE"
 
-log "Installing TRAJECT-Bench evaluation dependencies"
+log "安装 TRAJECT-Bench 评测依赖"
 python -m pip install -U pip
 if [[ "${INSTALL_FULL_REQUIREMENTS:-0}" == "1" || "${INSTALL_FULL_REQUIREMENTS:-false}" == "true" ]]; then
   python -m pip install -r requirements.txt
@@ -56,21 +56,21 @@ PY
 )"
 TRAJECTBENCH_DIR="${TRAJECTBENCH_DIR:-$CONFIG_TRAJECTBENCH_DIR}"
 if [[ "$TRAJECTBENCH_DIR" == /content/* ]] && [[ ! -w /content ]]; then
-  log "Configured path is under /content but /content is not writable here; falling back to ./TRAJECT-Bench"
+  log "配置路径位于 /content，但当前环境不可写；回退到 ./TRAJECT-Bench"
   TRAJECTBENCH_DIR="TRAJECT-Bench"
 fi
 
-log "TRAJECT-Bench dir: $TRAJECTBENCH_DIR"
+log "TRAJECT-Bench 目录: $TRAJECTBENCH_DIR"
 if [[ ! -d "$TRAJECTBENCH_DIR/.git" ]]; then
-  log "Cloning TRAJECT-Bench"
+  log "克隆 TRAJECT-Bench"
   rm -rf "$TRAJECTBENCH_DIR"
   git clone --depth 1 "$TRAJECTBENCH_REPO" "$TRAJECTBENCH_DIR"
 else
-  log "TRAJECT-Bench already exists; pulling latest shallow changes if possible"
+  log "TRAJECT-Bench 已存在；尝试拉取最新变更"
   git -C "$TRAJECTBENCH_DIR" pull --ff-only || true
 fi
 
-log "Starting TRAJECT-Bench worker evaluation"
+log "开始 TRAJECT-Bench worker 评测"
 CMD=(python eval/eval_trajectbench.py --config "$CONFIG_FILE" --trajectbench-dir "$TRAJECTBENCH_DIR")
 if [[ "${DRY_RUN:-0}" == "1" || "${DRY_RUN:-false}" == "true" ]]; then
   CMD+=(--dry-run)
@@ -87,4 +87,4 @@ fi
 
 "${CMD[@]}"
 
-log "Done"
+log "完成"

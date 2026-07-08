@@ -273,7 +273,7 @@ def call_worker(worker: dict, messages: list[dict], temperature: float, max_toke
 
 
 def preflight_workers(workers: list[dict], strict: bool) -> None:
-    print("[trajectbench] preflight worker credentials", flush=True)
+    print("[trajectbench] 预检 worker 凭证", flush=True)
     for worker in workers:
         name = str(worker.get("name") or worker.get("model"))
         api_key_ref = worker.get("api_key")
@@ -282,7 +282,7 @@ def preflight_workers(workers: list[dict], strict: bool) -> None:
             shown = mask_secret(str(api_key)) if api_key else "<none>"
             print(f"[trajectbench]   {name}: api_key={shown}", flush=True)
         except Exception as e:
-            msg = f"[trajectbench:preflight] {name}: {e}"
+            msg = f"[trajectbench:preflight] {name}: 预检失败: {e}"
             if strict:
                 raise RuntimeError(msg) from e
             print(msg, flush=True)
@@ -297,17 +297,17 @@ def preflight_workers(workers: list[dict], strict: bool) -> None:
         ]
         try:
             text = call_worker(worker, messages, temperature=0, max_tokens=32, timeout=30)
-            print(f"[trajectbench]   {name}: live check ok ({text[:60]!r})", flush=True)
+            print(f"[trajectbench]   {name}: 在线检查通过 ({text[:60]!r})", flush=True)
         except Exception as e:
-            raise RuntimeError(f"[trajectbench:preflight] {name}: live check failed: {e}") from e
+            raise RuntimeError(f"[trajectbench:preflight] {name}: 在线检查失败: {e}") from e
 
 
 def progress_line(done: int, total: int, ok: int, failed: int, skipped: int = 0) -> str:
     pct = 100.0 * done / max(1, total)
     remaining = max(0, total - done)
     return (
-        f"[trajectbench] progress {done}/{total} ({pct:5.1f}%) "
-        f"ok={ok} fail={failed} skipped={skipped} remaining={remaining}"
+        f"[trajectbench] 进度 {done}/{total} ({pct:5.1f}%) "
+        f"成功={ok} 失败={failed} 跳过={skipped} 剩余={remaining}"
     )
 
 
@@ -464,9 +464,9 @@ def main() -> int:
     ap.add_argument("--config", required=True)
     ap.add_argument("--trajectbench-dir", required=True)
     ap.add_argument("--dry-run", action="store_true", help="Load data/config and print planned jobs only.")
-    ap.add_argument("--no-resume", action="store_true", help="Ignore existing predictions and start from scratch.")
-    ap.add_argument("--retry-failed", action="store_true", help="Retry rows that previously ended with error.")
-    ap.add_argument("--skip-preflight", action="store_true", help="Skip worker credential/live checks.")
+    ap.add_argument("--no-resume", action="store_true", help="忽略已有预测结果，从头开始。")
+    ap.add_argument("--retry-failed", action="store_true", help="重试之前失败的记录。")
+    ap.add_argument("--skip-preflight", action="store_true", help="跳过 worker 凭证和在线检查。")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -480,10 +480,10 @@ def main() -> int:
         raise SystemExit(f"TRAJECT-Bench public_data not found: {base}")
 
     samples = list(iter_samples(base, cfg))
-    print(f"[trajectbench] samples={len(samples)} workers={len(workers)}", flush=True)
+    print(f"[trajectbench] 样本数={len(samples)} worker 数={len(workers)}", flush=True)
     if args.dry_run:
         for item in samples[:20]:
-            print(f"  {item['sample_id']} query={str(item['sample'].get('query'))[:90]}")
+            print(f"  {item['sample_id']} 问题={str(item['sample'].get('query'))[:90]}")
         if not args.skip_preflight:
             preflight_workers(workers, strict=False)
         return 0
@@ -518,8 +518,7 @@ def main() -> int:
     fail_count = sum(1 for row in rows if row.get("error"))
     if completed:
         print(
-            f"[trajectbench] resume enabled: loaded {len(completed)} completed worker-sample rows "
-            f"from {pred_path}",
+            f"[trajectbench] 已启用断点续跑：从 {pred_path} 读取到 {len(completed)} 条已完成 worker-sample 记录",
             flush=True,
         )
         print(progress_line(len(completed), total_jobs, ok_count, fail_count), flush=True)
@@ -545,7 +544,7 @@ def main() -> int:
                 continue
             pending.append((item, worker, messages, gold, ordered))
 
-    print(f"[trajectbench] pending jobs={len(pending)} concurrency={concurrency}", flush=True)
+    print(f"[trajectbench] 待执行任务={len(pending)} 并发数={concurrency}", flush=True)
 
     with pred_path.open(mode, encoding="utf-8") as jf:
         with ThreadPoolExecutor(max_workers=concurrency) as ex:
@@ -558,7 +557,7 @@ def main() -> int:
                 if row.get("error"):
                     print(
                         f"[trajectbench:warn] {row.get('sample_id')} {row.get('worker')} "
-                        f"failed: {row.get('error')}",
+                        f"失败: {row.get('error')}",
                         flush=True,
                     )
                 jf.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -588,10 +587,10 @@ def main() -> int:
 
     write_step_samples(steps_path, rows)
     if skipped:
-        print(f"[trajectbench] skipped completed rows: {skipped}", flush=True)
-    print(f"[trajectbench] wrote predictions: {pred_path}", flush=True)
-    print(f"[trajectbench] wrote scores: {scores_path}", flush=True)
-    print(f"[trajectbench] wrote step samples: {steps_path}", flush=True)
+        print(f"[trajectbench] 已跳过完成记录: {skipped}", flush=True)
+    print(f"[trajectbench] 已写出预测记录: {pred_path}", flush=True)
+    print(f"[trajectbench] 已写出分数表: {scores_path}", flush=True)
+    print(f"[trajectbench] 已写出步骤样本: {steps_path}", flush=True)
     return 0
 
 
