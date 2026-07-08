@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Any
 
 
+OFFICIAL_COMPAT_METRICS = True
+
+
 def load_config(path: str) -> dict:
     p = Path(path).expanduser()
     text = p.read_text(encoding="utf-8")
@@ -51,6 +54,86 @@ def mask_secret(value: str) -> str:
 
 def norm_tool_name(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def normalize_numeric(value):
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        if value.isdigit():
+            return int(value)
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return value
+
+
+def normalize_whitespace(value):
+    if not isinstance(value, str):
+        return value
+    result = re.sub(r"\s*,\s*", ",", value)
+    return re.sub(r"\s+", " ", result).strip()
+
+
+def normalize_value_official(value):
+    if value is None:
+        return None
+    str_val = str(value).strip()
+    try:
+        import ast
+        result = ast.literal_eval(str_val)
+    except Exception:
+        result = str_val
+    result = normalize_whitespace(result)
+    result = normalize_numeric(result)
+    return result
+
+
+def normalize_param_list_official(param_list):
+    normalized = []
+    for p in param_list:
+        value = p.get("value")
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            continue
+        normalized.append((p["name"].strip(), normalize_value_official(value)))
+    return sorted(normalized, key=lambda x: x[0])
+
+
+def compare_tool_parameters_official(pred, gt):
+    pred_req = pred.get("required_parameters") or pred.get("required parameters") or []
+    gt_req = gt.get("required_parameters") or gt.get("required parameters") or []
+    pred_opt = pred.get("optional_parameters") or pred.get("optional parameters") or []
+    gt_opt = gt.get("optional_parameters") or gt.get("optional parameters") or []
+    return (
+        normalize_param_list_official(pred_req) == normalize_param_list_official(gt_req)
+        and normalize_param_list_official(pred_opt) == normalize_param_list_official(gt_opt)
+    )
+
+
+def exact_match_tools_official(gt_tool_list, pred_tool_list, order=False):
+    gt_tool_names = [item["tool name"] for item in gt_tool_list]
+    pred_tool_names = [item["tool name"] for item in pred_tool_list]
+    return gt_tool_names == pred_tool_names if order else set(gt_tool_names) == set(pred_tool_names)
+
+
+def inclusion_tools_official(gt_tool_list, pred_tool_list):
+    gt_tool_names = [item["tool name"] for item in gt_tool_list]
+    pred_tool_names = [item["tool name"] for item in pred_tool_list]
+    return len(set(gt_tool_names) & set(pred_tool_names)) / max(1, len(gt_tool_names))
+
+
+def tool_traj_usage_official(gt_tool_list, pred_tool_list):
+    usage = []
+    gt_tool_names = [item["tool name"] for item in gt_tool_list]
+    pred_tool_names = [item["tool name"] for item in pred_tool_list]
+    included = list(set(gt_tool_names) & set(pred_tool_names))
+    for item in included:
+        gt_target = next((p for p in gt_tool_list if p["tool name"] == item), None)
+        pred_target = next((p for p in pred_tool_list if p["tool name"] == item), None)
+        usage.append(compare_tool_parameters_official(pred_target, gt_target))
+    return usage
 
 
 def norm_value(value: Any) -> Any:
@@ -150,6 +233,24 @@ def classify_error(error: Exception, raw_response: str | None = None) -> str:
 
 
 def score_prediction(gold: list[dict], pred: list[dict], ordered: bool) -> dict:
+    if OFFICIAL_COMPAT_METRICS:
+        exact = float(exact_match_tools_official(gold, pred, order=ordered))
+        inclusion = float(inclusion_tools_official(gold, pred))
+        usage = tool_traj_usage_official(gold, pred)
+        usage_avg = float(sum(bool(x) for x in usage) / len(usage)) if usage else 0.0
+        score = (exact + inclusion + usage_avg) / 3.0
+        return {
+            "score": round(float(score), 6),
+            "name_exact": exact,
+            "inclusion": round(float(inclusion), 6),
+            "param_accuracy": round(float(usage_avg), 6),
+            "official_traj_exact_match": exact,
+            "official_traj_inclusion": round(float(inclusion), 6),
+            "official_tool_traj_usage": round(float(usage_avg), 6),
+            "gold_tool_count": len(gold),
+            "pred_tool_count": len(pred),
+        }
+
     gold_names = [norm_tool_name(x.get("tool name", "")) for x in gold]
     pred_names = [norm_tool_name(x.get("tool name", "")) for x in pred]
     if ordered:
@@ -420,6 +521,21 @@ def write_step_samples(path: Path, eval_rows: list[dict]):
                 prior.append(strip_outputs(tool))
 
 
+def write_scores(path: Path, rows: list[dict]):
+    with path.open("w", newline="", encoding="utf-8") as cf:
+        fieldnames = [
+            "sample_id", "worker", "model", "domain", "trajectory_type",
+            "trajectory_file", "index", "score", "name_exact", "inclusion",
+            "param_accuracy", "official_traj_exact_match", "official_traj_inclusion",
+            "official_tool_traj_usage", "gold_tool_count", "pred_tool_count",
+            "latency_sec", "error_type", "error",
+        ]
+        writer = csv.DictWriter(cf, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in fieldnames})
+
+
 def load_completed(path: Path, retry_failed: bool) -> set[tuple[str, str]]:
     done: set[tuple[str, str]] = set()
     if not path.exists():
@@ -467,10 +583,12 @@ def main() -> int:
     ap.add_argument("--no-resume", action="store_true", help="忽略已有预测结果，从头开始。")
     ap.add_argument("--retry-failed", action="store_true", help="重试之前失败的记录。")
     ap.add_argument("--skip-preflight", action="store_true", help="跳过 worker 凭证和在线检查。")
+    ap.add_argument("--recompute-only", action="store_true", help="只根据已有 predictions 重新计算分数，不调用模型。")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     ev = cfg.get("evaluation") or {}
+    print("[trajectbench] 评分器=TRAJECT-Bench 官方基础指标兼容实现", flush=True)
     workers = cfg.get("workers") or []
     if not workers:
         raise SystemExit("config must contain workers")
@@ -496,6 +614,27 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     pred_path.parent.mkdir(parents=True, exist_ok=True)
     scores_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.recompute_only:
+        if not pred_path.exists():
+            raise SystemExit(f"找不到 predictions 文件: {pred_path}")
+        latest = {}
+        for i, row in enumerate(load_rows(pred_path, retry_failed=False)):
+            latest[(row.get("sample_id"), row.get("worker"))] = (i, row)
+        recomputed = []
+        for _, row in sorted(latest.values()):
+            if not row.get("error"):
+                gold = [clean_tool(x) for x in row.get("gold_tool_list", [])]
+                pred = [clean_tool(x) for x in row.get("pred_tool_list", [])]
+                ordered = row.get("trajectory_type") == "sequential"
+                row.update(score_prediction(gold, pred, ordered=ordered))
+            recomputed.append(row)
+        print(f"[trajectbench] 重新计算分数记录数={len(recomputed)}", flush=True)
+        write_scores(scores_path, recomputed)
+        write_step_samples(steps_path, recomputed)
+        print(f"[trajectbench] 已写出分数表: {scores_path}", flush=True)
+        print(f"[trajectbench] 已写出步骤样本: {steps_path}", flush=True)
+        return 0
 
     temperature = float(ev.get("temperature", 0))
     max_tokens = int(ev.get("max_tokens", 4096))
@@ -574,16 +713,7 @@ def main() -> int:
                 if sleep_seconds and concurrency == 1:
                     time.sleep(sleep_seconds)
 
-    with scores_path.open("w", newline="", encoding="utf-8") as cf:
-        fieldnames = [
-            "sample_id", "worker", "model", "domain", "trajectory_type",
-            "trajectory_file", "index", "score", "name_exact", "inclusion",
-            "param_accuracy", "gold_tool_count", "pred_tool_count", "latency_sec", "error_type", "error",
-        ]
-        writer = csv.DictWriter(cf, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({k: row.get(k, "") for k in fieldnames})
+    write_scores(scores_path, rows)
 
     write_step_samples(steps_path, rows)
     if skipped:
