@@ -90,7 +90,7 @@ else
   log "跳过失败重试阶段"
 fi
 
-log "阶段 4/5: 使用当前 predictions 重新计算官方兼容分数"
+log "阶段 4/5: 使用当前 predictions 调用官方 parser/metrics 重新计算分数"
 TRAJECTBENCH_DIR="$(python - "$CONFIG_FILE" <<'PY'
 import json, sys
 from pathlib import Path

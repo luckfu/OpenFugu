@@ -54,11 +54,12 @@ python eval/eval_trajectbench.py --config configs/trajectbench.yaml --trajectben
 
 ```text
 Prompt: 默认读取 TRAJECT-Bench/evaluation/evaluation_prompt.json
-Metric: 使用 TRAJECT-Bench 官方基础指标兼容实现
+Parser: 直接调用 TRAJECT-Bench 官方 extract_json_from_markdown_fence
+Metric: 直接调用 TRAJECT-Bench 官方 utils.metrics
 Tool pool: 支持 domain / all / fixed，默认 domain
 ```
 
-也就是说，它不是另起一套 benchmark，而是用 LiteLLM 把“官方 prompt + 官方兼容指标”接到你的多 worker 配置上。
+也就是说，它不是另起一套 benchmark，而是用 LiteLLM 把“官方 prompt + 官方 parser + 官方 metrics”接到你的多 worker 配置上。这样同一个模型输出在 TRAJECT-Bench 官方基础指标下通过或失败，OpenFugu 这里会保持一致。
 
 当前没有接官方 `retrieval` 工具池模式。原因是 OpenFugu 这一阶段的目标是比较不同 worker 在同一任务、同一工具池下的表现，生成路由训练标签；retrieval 本身会引入另一个“检索器质量”变量，后续需要单独评估。
 

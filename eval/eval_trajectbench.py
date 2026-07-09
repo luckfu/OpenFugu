@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib
 import json
 import os
 import random
@@ -16,12 +17,14 @@ import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 
-OFFICIAL_COMPAT_METRICS = True
+OFFICIAL_METRICS: Any = None
+OFFICIAL_JSON_EXTRACTOR: Any = None
 
 
 def load_config(path: str) -> dict:
@@ -34,6 +37,33 @@ def load_config(path: str) -> dict:
     except ImportError as e:
         raise SystemExit("YAML config requires PyYAML. Install pyyaml or use JSON.") from e
     return yaml.safe_load(text) or {}
+
+
+def load_official_trajectbench_modules(trajectbench_dir: Path) -> None:
+    """Load TRAJECT-Bench's own parsing and metric functions.
+
+    TRAJECT-Bench's utils.metrics imports utils.model_providers, and that module
+    validates some provider env vars at import time. The metrics we need do not
+    call providers, so we set harmless placeholders only to make the official
+    modules importable.
+    """
+    global OFFICIAL_METRICS, OFFICIAL_JSON_EXTRACTOR
+    tb = trajectbench_dir.expanduser().resolve()
+    if not (tb / "utils" / "metrics.py").exists():
+        raise RuntimeError(f"TRAJECT-Bench official metrics not found under {tb}")
+    for key in ("GEMINI_API_KEY", "OPENAI_API_KEY"):
+        os.environ.setdefault(key, "openfugu-metric-only-placeholder")
+    sys.path.insert(0, str(tb))
+    try:
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            OFFICIAL_METRICS = importlib.import_module("utils.metrics")
+            providers = importlib.import_module("utils.model_providers")
+        OFFICIAL_JSON_EXTRACTOR = providers.extract_json_from_markdown_fence
+    finally:
+        try:
+            sys.path.remove(str(tb))
+        except ValueError:
+            pass
 
 
 def resolve_secret(value: Any) -> Any:
@@ -54,125 +84,6 @@ def mask_secret(value: str) -> str:
 
 def norm_tool_name(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).lower()
-
-
-def normalize_numeric(value):
-    if isinstance(value, (int, float)):
-        return value
-    if isinstance(value, str):
-        value = value.strip()
-        if value.isdigit():
-            return int(value)
-        try:
-            return float(value)
-        except ValueError:
-            pass
-    return value
-
-
-def normalize_whitespace(value):
-    if not isinstance(value, str):
-        return value
-    result = re.sub(r"\s*,\s*", ",", value)
-    return re.sub(r"\s+", " ", result).strip()
-
-
-def normalize_value_official(value):
-    if value is None:
-        return None
-    str_val = str(value).strip()
-    try:
-        import ast
-        result = ast.literal_eval(str_val)
-    except Exception:
-        result = str_val
-    result = normalize_whitespace(result)
-    result = normalize_numeric(result)
-    return result
-
-
-def normalize_param_list_official(param_list):
-    normalized = []
-    for p in param_list:
-        value = p.get("value")
-        if value is None or (isinstance(value, str) and value.strip() == ""):
-            continue
-        normalized.append((p["name"].strip(), normalize_value_official(value)))
-    return sorted(normalized, key=lambda x: x[0])
-
-
-def compare_tool_parameters_official(pred, gt):
-    pred_req = pred.get("required_parameters") or pred.get("required parameters") or []
-    gt_req = gt.get("required_parameters") or gt.get("required parameters") or []
-    pred_opt = pred.get("optional_parameters") or pred.get("optional parameters") or []
-    gt_opt = gt.get("optional_parameters") or gt.get("optional parameters") or []
-    return (
-        normalize_param_list_official(pred_req) == normalize_param_list_official(gt_req)
-        and normalize_param_list_official(pred_opt) == normalize_param_list_official(gt_opt)
-    )
-
-
-def exact_match_tools_official(gt_tool_list, pred_tool_list, order=False):
-    gt_tool_names = [item["tool name"] for item in gt_tool_list]
-    pred_tool_names = [item["tool name"] for item in pred_tool_list]
-    return gt_tool_names == pred_tool_names if order else set(gt_tool_names) == set(pred_tool_names)
-
-
-def inclusion_tools_official(gt_tool_list, pred_tool_list):
-    gt_tool_names = [item["tool name"] for item in gt_tool_list]
-    pred_tool_names = [item["tool name"] for item in pred_tool_list]
-    return len(set(gt_tool_names) & set(pred_tool_names)) / max(1, len(gt_tool_names))
-
-
-def tool_traj_usage_official(gt_tool_list, pred_tool_list):
-    usage = []
-    gt_tool_names = [item["tool name"] for item in gt_tool_list]
-    pred_tool_names = [item["tool name"] for item in pred_tool_list]
-    included = list(set(gt_tool_names) & set(pred_tool_names))
-    for item in included:
-        gt_target = next((p for p in gt_tool_list if p["tool name"] == item), None)
-        pred_target = next((p for p in pred_tool_list if p["tool name"] == item), None)
-        usage.append(compare_tool_parameters_official(pred_target, gt_target))
-    return usage
-
-
-def norm_value(value: Any) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        value = value.strip()
-        if value == "":
-            return ""
-        if re.fullmatch(r"-?\d+", value):
-            try:
-                return int(value)
-            except ValueError:
-                pass
-        if re.fullmatch(r"-?\d+\.\d+", value):
-            try:
-                return float(value)
-            except ValueError:
-                pass
-        return re.sub(r"\s+", " ", value)
-    if isinstance(value, list):
-        return [norm_value(x) for x in value]
-    if isinstance(value, dict):
-        return {str(k): norm_value(v) for k, v in sorted(value.items())}
-    return value
-
-
-def norm_params(tool: dict) -> tuple[tuple[str, Any], ...]:
-    params = []
-    for key in ("required parameters", "required_parameters", "optional parameters", "optional_parameters"):
-        for item in tool.get(key) or []:
-            name = str(item.get("name", "")).strip()
-            if not name:
-                continue
-            value = norm_value(item.get("value"))
-            if value in ("", None):
-                continue
-            params.append((name, value))
-    return tuple(sorted(params, key=lambda x: x[0]))
 
 
 def clean_tool(tool: dict) -> dict:
@@ -197,6 +108,8 @@ def extract_json(text: str) -> Any:
     raw = (text or "").strip()
     if not raw:
         raise ValueError("empty model response")
+    if OFFICIAL_JSON_EXTRACTOR is not None:
+        return OFFICIAL_JSON_EXTRACTOR(raw)
     fence = re.search(r"```(?:json)?\s*(.*?)```", raw, flags=re.S | re.I)
     if fence:
         raw = fence.group(1).strip()
@@ -233,50 +146,21 @@ def classify_error(error: Exception, raw_response: str | None = None) -> str:
 
 
 def score_prediction(gold: list[dict], pred: list[dict], ordered: bool) -> dict:
-    if OFFICIAL_COMPAT_METRICS:
-        exact = float(exact_match_tools_official(gold, pred, order=ordered))
-        inclusion = float(inclusion_tools_official(gold, pred))
-        usage = tool_traj_usage_official(gold, pred)
-        usage_avg = float(sum(bool(x) for x in usage) / len(usage)) if usage else 0.0
-        score = (exact + inclusion + usage_avg) / 3.0
-        return {
-            "score": round(float(score), 6),
-            "name_exact": exact,
-            "inclusion": round(float(inclusion), 6),
-            "param_accuracy": round(float(usage_avg), 6),
-            "official_traj_exact_match": exact,
-            "official_traj_inclusion": round(float(inclusion), 6),
-            "official_tool_traj_usage": round(float(usage_avg), 6),
-            "gold_tool_count": len(gold),
-            "pred_tool_count": len(pred),
-        }
-
-    gold_names = [norm_tool_name(x.get("tool name", "")) for x in gold]
-    pred_names = [norm_tool_name(x.get("tool name", "")) for x in pred]
-    if ordered:
-        name_exact = float(gold_names == pred_names)
-    else:
-        name_exact = float(set(gold_names) == set(pred_names))
-    inclusion = len(set(gold_names) & set(pred_names)) / max(1, len(set(gold_names)))
-
-    param_hits = 0
-    total = 0
-    pred_by_name: dict[str, list[dict]] = {}
-    for item in pred:
-        pred_by_name.setdefault(norm_tool_name(item.get("tool name", "")), []).append(item)
-    for item in gold:
-        total += 1
-        name = norm_tool_name(item.get("tool name", ""))
-        expected = norm_params(item)
-        if any(norm_params(candidate) == expected for candidate in pred_by_name.get(name, [])):
-            param_hits += 1
-    param_accuracy = param_hits / max(1, total)
-    score = 0.6 * name_exact + 0.25 * inclusion + 0.15 * param_accuracy
+    if OFFICIAL_METRICS is None:
+        raise RuntimeError("TRAJECT-Bench official metrics are not loaded")
+    exact = float(OFFICIAL_METRICS.exact_match_tools(gold, pred, order=ordered))
+    inclusion = float(OFFICIAL_METRICS.inclusion_tools(gold, pred))
+    usage = OFFICIAL_METRICS.tool_traj_usage(gold, pred)
+    usage_avg = float(sum(bool(x) for x in usage) / len(usage)) if usage else 0.0
+    score = (exact + inclusion + usage_avg) / 3.0
     return {
         "score": round(float(score), 6),
-        "name_exact": name_exact,
+        "name_exact": exact,
         "inclusion": round(float(inclusion), 6),
-        "param_accuracy": round(float(param_accuracy), 6),
+        "param_accuracy": round(float(usage_avg), 6),
+        "official_traj_exact_match": exact,
+        "official_traj_inclusion": round(float(inclusion), 6),
+        "official_tool_traj_usage": round(float(usage_avg), 6),
         "gold_tool_count": len(gold),
         "pred_tool_count": len(pred),
     }
@@ -669,15 +553,21 @@ def main() -> int:
 
     cfg = load_config(args.config)
     ev = cfg.get("evaluation") or {}
-    print("[trajectbench] 评分器=TRAJECT-Bench 官方基础指标兼容实现", flush=True)
     workers = cfg.get("workers") or []
     if not workers:
         raise SystemExit("config must contain workers")
 
-    base = Path(args.trajectbench_dir).expanduser() / "public_data"
+    trajectbench_dir = Path(args.trajectbench_dir).expanduser()
+    base = trajectbench_dir / "public_data"
     if not base.exists():
         raise SystemExit(f"TRAJECT-Bench public_data not found: {base}")
-    official_prompts = load_official_prompts(Path(args.trajectbench_dir).expanduser())
+    try:
+        load_official_trajectbench_modules(trajectbench_dir)
+    except Exception as e:
+        raise SystemExit(f"无法加载 TRAJECT-Bench 官方 metrics/parser: {e}") from e
+    print("[trajectbench] 评分器=TRAJECT-Bench 官方 utils.metrics", flush=True)
+    print("[trajectbench] JSON 解析器=TRAJECT-Bench 官方 extract_json_from_markdown_fence", flush=True)
+    official_prompts = load_official_prompts(trajectbench_dir)
     method = str(ev.get("method") or "direct")
     if method not in ("direct", "cot"):
         raise SystemExit("evaluation.method must be direct or cot")

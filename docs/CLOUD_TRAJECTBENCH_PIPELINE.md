@@ -13,7 +13,7 @@ clone OpenFugu
   ↓
 重试失败项
   ↓
-重算官方兼容分数
+用官方 parser/metrics 重算分数
   ↓
 训练 Qwen hidden-state router
   ↓
@@ -85,7 +85,7 @@ workers:
 
 说明：TRAJECT-Bench 官方评测命令是 `python evaluation/tool_evaluation_model.py ...`。OpenFugu 的云端流程没有直接调用它批量跑 worker，因为官方 `-model` 参数是固定白名单，不能直接表达 DeepSeek、智谱等多个 OpenAI-compatible worker 的 `api_base/api_key` 配置。
 
-OpenFugu 的 `eval/eval_trajectbench.py` 会读取 TRAJECT-Bench 官方 `evaluation/evaluation_prompt.json`，默认使用 `method: direct`，支持 `tool_select: domain/all/fixed`，并用官方基础指标兼容实现打分。差别主要在模型调用层：官方脚本走它自己的 provider wrapper，OpenFugu 走 LiteLLM + YAML workers。
+OpenFugu 的 `eval/eval_trajectbench.py` 会读取 TRAJECT-Bench 官方 `evaluation/evaluation_prompt.json`，默认使用 `method: direct`，支持 `tool_select: domain/all/fixed`，并直接调用官方 `extract_json_from_markdown_fence` 和 `utils.metrics` 打分。差别主要在模型调用层：官方脚本走它自己的 provider wrapper，OpenFugu 走 LiteLLM + YAML workers。
 
 ## 4. 设置 API key
 
@@ -119,7 +119,7 @@ CONFIG_FILE=configs/trajectbench.yaml bash scripts/cloud_trajectbench_full_pipel
 1. dry-run 检查配置和样本
 2. 正式评估 worker
 3. RETRY_FAILED 重试失败项
-4. 根据 predictions 重新计算官方兼容分数
+4. 根据 predictions 调用官方 parser/metrics 重新计算分数
 5. 训练 router
 6. 打印提交命令
 ```
