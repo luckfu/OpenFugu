@@ -23,6 +23,16 @@ training:
   seed: 42
 
 evaluation:
+  # Prompt style follows TRAJECT-Bench evaluation/evaluation_prompt.json.
+  # direct matches the official direct prompting setting; cot matches the
+  # official CoT setting.
+  method: direct
+  # Mirrors TRAJECT-Bench -tool_select for non-retrieval modes.
+  # domain: use tools from the sample domain
+  # all: use all tools
+  # fixed: include gold tools plus random same-domain distractors up to k
+  tool_select: domain
+  k: 20
   # Good first smoke test:
   #   trajectory_types: [parallel]
   #   trajectory_files: [simple_ver]

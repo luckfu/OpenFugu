@@ -66,6 +66,9 @@ nano configs/trajectbench.yaml
 
 ```yaml
 evaluation:
+  method: direct
+  tool_select: domain
+  k: 20
   max_samples_per_domain: 1   # 先小跑；确认后再调大
   concurrency: 2
   request_timeout: 120
@@ -79,6 +82,10 @@ workers:
 ```
 
 `workers[*].name` 是 router slot 名称，后续部署时必须保持同样顺序。
+
+说明：TRAJECT-Bench 官方评测命令是 `python evaluation/tool_evaluation_model.py ...`。OpenFugu 的云端流程没有直接调用它批量跑 worker，因为官方 `-model` 参数是固定白名单，不能直接表达 DeepSeek、智谱等多个 OpenAI-compatible worker 的 `api_base/api_key` 配置。
+
+OpenFugu 的 `eval/eval_trajectbench.py` 会读取 TRAJECT-Bench 官方 `evaluation/evaluation_prompt.json`，默认使用 `method: direct`，支持 `tool_select: domain/all/fixed`，并用官方基础指标兼容实现打分。差别主要在模型调用层：官方脚本走它自己的 provider wrapper，OpenFugu 走 LiteLLM + YAML workers。
 
 ## 4. 设置 API key
 

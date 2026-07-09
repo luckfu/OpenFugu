@@ -18,6 +18,50 @@
 
 TRAJECT-Bench 提供的是工具调用轨迹数据。我们用它来测试不同 worker 模型在“规划工具调用轨迹”上的表现。
 
+TRAJECT-Bench 官方 README 里的标准入口是：
+
+```bash
+python evaluation/tool_evaluation_model.py \
+  -model [model name] \
+  -tool_select [tool selection mode] \
+  -method [problem solving method] \
+  -k [tool pool size] \
+  -emb_model [embedding model] \
+  -traj_type [trajectory type] \
+  -traj_file [trajectory file name] \
+  -log_dir [log directory] \
+  -chk_dir [checkpoint directory] \
+  -base_data_dir [base data directory]
+```
+
+我们没有直接用这个入口批量跑 worker，原因是官方脚本里的 `-model` 是白名单枚举，例如 `claude_v37`、`deepseek-chat`、`gemini-2.5-pro` 等。它不直接支持 OpenFugu YAML 里的任意 OpenAI-compatible 服务商配置，例如：
+
+```yaml
+workers:
+  - name: zhipu_glm_5_2
+    model: openai/glm-5.2
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key: env:ZHIPU_API_KEY
+```
+
+所以 OpenFugu 使用自己的适配器：
+
+```bash
+python eval/eval_trajectbench.py --config configs/trajectbench.yaml --trajectbench-dir TRAJECT-Bench
+```
+
+但这个适配器现在做了两件事来对齐官方评测语义：
+
+```text
+Prompt: 默认读取 TRAJECT-Bench/evaluation/evaluation_prompt.json
+Metric: 使用 TRAJECT-Bench 官方基础指标兼容实现
+Tool pool: 支持 domain / all / fixed，默认 domain
+```
+
+也就是说，它不是另起一套 benchmark，而是用 LiteLLM 把“官方 prompt + 官方兼容指标”接到你的多 worker 配置上。
+
+当前没有接官方 `retrieval` 工具池模式。原因是 OpenFugu 这一阶段的目标是比较不同 worker 在同一任务、同一工具池下的表现，生成路由训练标签；retrieval 本身会引入另一个“检索器质量”变量，后续需要单独评估。
+
 本阶段会让每个 worker 看同一个任务，然后输出它认为应该调用的工具列表：
 
 ```text
@@ -51,6 +95,19 @@ cp configs/trajectbench.example.yaml configs/trajectbench.yaml
 `configs/trajectbench.yaml` 已经被 `.gitignore` 忽略，可以放本机路径和私有 worker 配置。
 
 不要把 API key 直接写进 YAML。推荐用环境变量：
+
+官方 CLI 参数在 OpenFugu YAML 里的对应关系：
+
+```yaml
+evaluation:
+  method: direct        # 对应 -method direct
+  tool_select: domain   # 对应 -tool_select domain
+  k: 20                 # 对应 -k 20，仅 fixed 模式使用
+  trajectory_types:
+    - parallel          # 对应 -traj_type parallel
+  trajectory_files:
+    - simple_ver        # 对应 -traj_file simple_ver
+```
 
 ```yaml
 workers:

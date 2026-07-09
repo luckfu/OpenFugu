@@ -209,7 +209,7 @@ def extract_json(text: str) -> Any:
 
 def parse_prediction(text: str) -> list[dict]:
     obj = extract_json(text)
-    tools = obj.get("tool_list") or obj.get("tools") or obj.get("tool list")
+    tools = obj.get("tool list") or obj.get("tool_list") or obj.get("tools")
     if not isinstance(tools, list):
         raise ValueError("prediction JSON must contain a tool_list array")
     return [clean_tool(x) for x in tools if isinstance(x, dict)]
@@ -289,6 +289,33 @@ def load_tools(base: Path, domain: str) -> Any:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def load_all_tools(base: Path) -> Any:
+    p = base / "tools" / "all_tools.json"
+    if not p.exists():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def select_tools_for_sample(base: Path, item: dict, cfg: dict, all_tools: Any) -> Any:
+    ev = cfg.get("evaluation") or {}
+    mode = str(ev.get("tool_select") or "domain")
+    domain_tools = load_tools(base, item["domain"]) or []
+    if mode == "domain":
+        return domain_tools
+    if mode == "all":
+        return all_tools or domain_tools
+    if mode == "fixed":
+        k = int(ev.get("k") or 20)
+        gold = [clean_tool(x) for x in item["sample"].get("tool list", [])]
+        gold_names = {x.get("tool name") for x in gold}
+        matched = [x for x in domain_tools if x.get("tool name") in gold_names]
+        unmatched = [x for x in domain_tools if x.get("tool name") not in gold_names]
+        rng = random.Random(f"{ev.get('seed') or 42}:{item['sample_id']}")
+        need = max(0, k - len(matched))
+        return matched + rng.sample(unmatched, min(need, len(unmatched)))
+    raise ValueError("evaluation.tool_select must be domain, all, or fixed")
+
+
 def tool_catalog_for_prompt(tools: Any, max_chars: int = 24000) -> str:
     if tools is None:
         return "No domain tool catalog file was found."
@@ -298,13 +325,60 @@ def tool_catalog_for_prompt(tools: Any, max_chars: int = 24000) -> str:
     return text
 
 
-def build_prompt(sample: dict, domain: str, trajectory_type: str, tools: Any) -> list[dict]:
+def official_processed_tools(tools: Any) -> list[dict]:
+    essential_fields = [
+        "parent tool name",
+        "required_parameters",
+        "optional_parameters",
+        "tool name",
+        "tool description",
+        "API name",
+        "domain name",
+    ]
+    processed = []
+    for tool in tools or []:
+        item = {}
+        for field in essential_fields:
+            if field in tool:
+                item[field] = tool[field]
+            elif field == "parent tool name":
+                item[field] = "Unknown"
+            elif field in ("required_parameters", "optional_parameters"):
+                item[field] = []
+            elif field == "tool description":
+                item[field] = "No description available"
+            elif field in ("API name", "domain name"):
+                item[field] = "Unknown"
+        processed.append(item)
+    return processed
+
+
+def build_prompt(
+    sample: dict,
+    domain: str,
+    trajectory_type: str,
+    tools: Any,
+    method: str,
+    official_prompts: dict | None,
+) -> list[dict]:
+    if official_prompts and method in official_prompts:
+        prompt_tools = tool_catalog_for_prompt(official_processed_tools(tools))
+        prompt_query = (
+            official_prompts[method]
+            .replace("<query>", str(sample.get("query") or ""))
+            .replace("<tools>", prompt_tools)
+        )
+        return [
+            {"role": "system", "content": "Return only valid JSON. Do not include markdown unless the prompt explicitly asks for a JSON fence."},
+            {"role": "user", "content": prompt_query},
+        ]
+
     gold_tools = [strip_outputs(clean_tool(x)) for x in sample.get("tool list", [])]
     user = {
         "domain": domain,
         "trajectory_type": trajectory_type,
         "query": sample.get("query"),
-        "available_tools": tools,
+        "available_tools": tool_catalog_for_prompt(tools),
     }
     system = (
         "You are evaluating tool-use planning. Given a user query and available tools, "
@@ -458,6 +532,13 @@ def evaluate_one(
     return row
 
 
+def load_official_prompts(trajectbench_dir: Path) -> dict | None:
+    prompt_path = trajectbench_dir / "evaluation" / "evaluation_prompt.json"
+    if not prompt_path.exists():
+        return None
+    return json.loads(prompt_path.read_text(encoding="utf-8"))
+
+
 def iter_samples(base: Path, cfg: dict):
     ev = cfg.get("evaluation") or {}
     domains = ev.get("domains") or []
@@ -596,6 +677,17 @@ def main() -> int:
     base = Path(args.trajectbench_dir).expanduser() / "public_data"
     if not base.exists():
         raise SystemExit(f"TRAJECT-Bench public_data not found: {base}")
+    official_prompts = load_official_prompts(Path(args.trajectbench_dir).expanduser())
+    method = str(ev.get("method") or "direct")
+    if method not in ("direct", "cot"):
+        raise SystemExit("evaluation.method must be direct or cot")
+    if official_prompts and method in official_prompts:
+        print(f"[trajectbench] Prompt=TRAJECT-Bench 官方 {method} 模板 + LiteLLM worker 适配", flush=True)
+    else:
+        print("[trajectbench] Prompt=OpenFugu 内置兼容模板", flush=True)
+    tool_select = str(ev.get("tool_select") or "domain")
+    print(f"[trajectbench] Tool select={tool_select}", flush=True)
+    all_tools = load_all_tools(base) if tool_select == "all" else None
 
     samples = list(iter_samples(base, cfg))
     print(f"[trajectbench] 样本数={len(samples)} worker 数={len(workers)}", flush=True)
@@ -666,13 +758,14 @@ def main() -> int:
     skipped = 0
     pending = []
     for item in samples:
-        tools = load_tools(base, item["domain"])
-        prompt_tools = tool_catalog_for_prompt(tools)
+        tools = select_tools_for_sample(base, item, cfg, all_tools)
         messages = build_prompt(
             item["sample"],
             item["domain"],
             item["trajectory_type"],
-            prompt_tools,
+            tools,
+            method,
+            official_prompts,
         )
         gold = [clean_tool(x) for x in item["sample"].get("tool list", [])]
         ordered = item["trajectory_type"] == "sequential"
@@ -702,7 +795,7 @@ def main() -> int:
                 jf.write(json.dumps(row, ensure_ascii=False) + "\n")
                 jf.flush()
                 rows.append(row)
-                completed.add((item["sample_id"], name))
+                completed.add((row["sample_id"], row["worker"]))
                 if row.get("error"):
                     fail_count += 1
                 else:
