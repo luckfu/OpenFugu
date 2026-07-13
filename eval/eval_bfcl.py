@@ -129,6 +129,8 @@ def normalize_schema(value: Any) -> Any:
         out["type"] = "object"
     elif type_name == "tuple":
         out["type"] = "array"
+    elif type_name == "float":
+        out["type"] = "number"
     elif type_name == "any":
         out.pop("type", None)
     return out
@@ -195,6 +197,8 @@ def parse_tool_calls(response) -> tuple[list[dict], str]:
 
 def classify_error(error: Exception) -> str:
     text = str(error).lower()
+    if "invalid schema for function" in text:
+        return "invalid_tool_schema"
     if any(token in text for token in ("余额不足", "无可用资源包", "insufficient_quota", "insufficient funds", "credit balance")):
         return "insufficient_quota"
     if "authentication" in text or "身份验证" in text:
@@ -208,23 +212,63 @@ def classify_error(error: Exception) -> str:
     return "call_failed"
 
 
+def structured_error_fields(value: Any) -> tuple[str, str]:
+    if isinstance(value, dict):
+        error = value.get("error")
+        if isinstance(error, dict):
+            code = str(error.get("code") or error.get("type") or "")
+            message = str(error.get("message") or "")
+            if code or message:
+                return code, message
+        code = str(value.get("code") or value.get("type") or "")
+        message = str(value.get("message") or "")
+        if code or message:
+            return code, message
+        for item in value.values():
+            code, message = structured_error_fields(item)
+            if code or message:
+                return code, message
+    elif isinstance(value, list):
+        for item in value:
+            code, message = structured_error_fields(item)
+            if code or message:
+                return code, message
+    return "", ""
+
+
 def provider_error_details(error: Exception, worker: dict) -> dict:
     raw = str(error)
     payloads = [raw]
+    structured_payloads = []
     body = getattr(error, "body", None)
     if body:
+        structured_payloads.append(body)
         payloads.append(json.dumps(body, ensure_ascii=False) if not isinstance(body, str) else body)
     response = getattr(error, "response", None)
     if response is not None:
         try:
-            payloads.append(json.dumps(response.json(), ensure_ascii=False))
+            response_json = response.json()
+            structured_payloads.append(response_json)
+            payloads.append(json.dumps(response_json, ensure_ascii=False))
         except Exception:
             response_text = getattr(response, "text", "")
             if response_text:
                 payloads.append(str(response_text))
     payload_text = "\n".join(payloads)
-    code_matches = re.findall(r"['\"]?code['\"]?\s*:\s*['\"]?([^'\"},\s]+)", payload_text)
-    message_matches = re.findall(r"['\"]?message['\"]?\s*:\s*['\"]([^'\"]+)", payload_text)
+    provider_code = ""
+    provider_message = ""
+    for payload in structured_payloads:
+        code, message = structured_error_fields(payload)
+        provider_code = code or provider_code
+        provider_message = message or provider_message
+    if not provider_code:
+        code_matches = re.findall(r"[\"']?code[\"']?\s*:\s*[\"']?([^\"'},\s]+)", payload_text)
+        provider_code = code_matches[-1] if code_matches else ""
+    if not provider_message:
+        double_quoted = re.findall(r'"message"\s*:\s*"((?:\\.|[^"\\])*)"', payload_text)
+        single_quoted = re.findall(r"'message'\s*:\s*'((?:\\.|[^'\\])*)'", payload_text)
+        messages = double_quoted or single_quoted
+        provider_message = messages[-1] if messages else raw
     endpoint = str(worker.get("api_base") or worker.get("base_url") or "<default>")
     model = str(worker.get("model") or "<unknown>")
     worker_name = str(worker.get("name") or model)
@@ -250,8 +294,8 @@ def provider_error_details(error: Exception, worker: dict) -> dict:
     return {
         "error_type": error_type,
         "provider": provider,
-        "provider_code": code_matches[-1] if code_matches else "",
-        "provider_message": message_matches[-1] if message_matches else raw,
+        "provider_code": provider_code,
+        "provider_message": provider_message,
         "resource_hint": resource_hint,
         "worker": worker_name,
         "model": model,
@@ -326,7 +370,10 @@ def load_existing(path: Path, retry_failed: bool) -> tuple[list[dict], set[tuple
         for row in load_jsonl(path):
             latest[(str(row.get("case_id")), str(row.get("worker")))] = row
     if retry_failed:
-        retryable = {"auth_failed", "rate_limited", "timeout", "parse_failed", "call_failed"}
+        retryable = {
+            "auth_failed", "rate_limited", "timeout", "parse_failed",
+            "invalid_tool_schema", "call_failed",
+        }
         latest = {key: row for key, row in latest.items() if row.get("error_type") not in retryable}
     return list(latest.values()), set(latest)
 
