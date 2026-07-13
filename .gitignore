@@ -23,6 +23,7 @@ secrets*
 configs/liveclawbench_colab.yaml
 configs/my_workers.yaml
 configs/bfcl.yaml
+configs/bfcl_multiturn.yaml
 
 # local outputs
 results/*.out

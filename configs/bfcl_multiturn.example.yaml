@@ -1,0 +1,41 @@
+# OpenFugu BFCL V4 multi-turn worker evaluation.
+
+bfcl:
+  repo: https://github.com/ShishirPatil/gorilla.git
+  dir: gorilla
+  revision: 6ea57973c7a6097fd7c5915698c54c17c5b1b6c8
+
+evaluation:
+  categories:
+    - multi_turn_base
+  # Start with 2 episodes. Set to 0 for every episode in each category.
+  max_samples_per_category: 2
+  seed: 42
+  concurrency: 3
+  request_timeout: 120
+  max_tokens: 2048
+  max_steps_per_turn: 20
+  temperature: 0
+  progress_every: 1
+
+outputs:
+  dir: openfugu_bfcl_multiturn
+  predictions_jsonl: openfugu_bfcl_multiturn/bfcl_multiturn_predictions.jsonl
+  scores_csv: openfugu_bfcl_multiturn/bfcl_multiturn_scores.csv
+  step_samples_jsonl: openfugu_bfcl_multiturn/bfcl_multiturn_step_samples.jsonl
+
+workers:
+  - name: DeepSeek-V4-Flash
+    model: openai/deepseek-v4-flash
+    api_base: https://api.deepseek.com/v1
+    api_key: env:DEEPSEEK_API_KEY
+
+  - name: DeepSeek-V4-Pro
+    model: openai/deepseek-v4-pro
+    api_base: https://api.deepseek.com/v1
+    api_key: env:DEEPSEEK_API_KEY
+
+  - name: zhipu_glm_5_2
+    model: openai/glm-5.2
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key: env:ZHIPU_API_KEY

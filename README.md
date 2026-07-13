@@ -73,6 +73,12 @@ CONFIG_FILE=configs/bfcl.yaml bash scripts/colab_bfcl_router.sh
 # full cloud flow: evaluate -> retry -> train
 CONFIG_FILE=configs/bfcl.yaml bash scripts/cloud_bfcl_full_pipeline.sh
 
+# EVAL: BFCL official stateful multi-turn tool-use episodes (no Docker)
+# Chinese runbook: docs/BFCL_MULTITURN_RUNBOOK.md
+cp configs/bfcl_multiturn.example.yaml configs/bfcl_multiturn.yaml
+DRY_RUN=1 CONFIG_FILE=configs/bfcl_multiturn.yaml bash scripts/prepare_bfcl_multiturn.sh
+CONFIG_FILE=configs/bfcl_multiturn.yaml bash scripts/prepare_bfcl_multiturn.sh
+
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # mock: +9% over one-shot (toy policy w/ headroom)
 python train/train_recursion_real.py      # REAL recursion (round-0 fed back into round-1)
