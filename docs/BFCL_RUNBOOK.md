@@ -101,6 +101,20 @@ CONFIG_FILE=configs/bfcl.yaml bash scripts/prepare_bfcl.sh
 
 正式执行前，每个 worker 都必须通过一个真实的原生 tool-call 预检。只返回普通文本、不支持 `tools` 参数或参数类型错误都会立即停止。
 
+预检和正式评测错误会显示具体 worker、模型、endpoint、供应商错误码和资源提示。例如：
+
+```text
+[bfcl:preflight:error] worker=zhipu_glm_5_2
+model=openai/glm-5.2
+endpoint=https://open.bigmodel.cn/api/paas/v4/
+类型=insufficient_quota
+供应商错误码=1113
+供应商消息=余额不足或无可用资源包,请充值。
+需检查=智谱开放平台的账户余额或 glm-5.2 可用资源包
+```
+
+如果供应商只返回“无可用资源包”而没有具体套餐名称，程序会明确说明这一点，不能从 API 错误中推断出控制台里的具体资源包名称。
+
 并发数在 YAML 中控制：
 
 ```yaml

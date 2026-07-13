@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import random
+import re
 import sys
 import time
 import types
@@ -194,6 +195,8 @@ def parse_tool_calls(response) -> tuple[list[dict], str]:
 
 def classify_error(error: Exception) -> str:
     text = str(error).lower()
+    if any(token in text for token in ("余额不足", "无可用资源包", "insufficient_quota", "insufficient funds", "credit balance")):
+        return "insufficient_quota"
     if "authentication" in text or "身份验证" in text:
         return "auth_failed"
     if "rate limit" in text or "429" in text:
@@ -203,6 +206,74 @@ def classify_error(error: Exception) -> str:
     if isinstance(error, json.JSONDecodeError):
         return "parse_failed"
     return "call_failed"
+
+
+def provider_error_details(error: Exception, worker: dict) -> dict:
+    raw = str(error)
+    payloads = [raw]
+    body = getattr(error, "body", None)
+    if body:
+        payloads.append(json.dumps(body, ensure_ascii=False) if not isinstance(body, str) else body)
+    response = getattr(error, "response", None)
+    if response is not None:
+        try:
+            payloads.append(json.dumps(response.json(), ensure_ascii=False))
+        except Exception:
+            response_text = getattr(response, "text", "")
+            if response_text:
+                payloads.append(str(response_text))
+    payload_text = "\n".join(payloads)
+    code_matches = re.findall(r"['\"]?code['\"]?\s*:\s*['\"]?([^'\"},\s]+)", payload_text)
+    message_matches = re.findall(r"['\"]?message['\"]?\s*:\s*['\"]([^'\"]+)", payload_text)
+    endpoint = str(worker.get("api_base") or worker.get("base_url") or "<default>")
+    model = str(worker.get("model") or "<unknown>")
+    worker_name = str(worker.get("name") or model)
+    error_type = classify_error(RuntimeError(payload_text))
+
+    if "bigmodel.cn" in endpoint:
+        provider = "智谱开放平台"
+    elif "deepseek.com" in endpoint:
+        provider = "DeepSeek 官方平台"
+    else:
+        provider = endpoint
+
+    if error_type == "insufficient_quota":
+        resource_hint = (
+            f"{provider} 的账户余额或模型 {model.removeprefix('openai/')} 可用资源包；"
+            "供应商响应未给出具体资源包名称，请到对应控制台查看套餐/余额明细"
+        )
+    elif error_type == "rate_limited":
+        resource_hint = f"{provider} 对模型 {model.removeprefix('openai/')} 的并发或速率配额"
+    else:
+        resource_hint = ""
+
+    return {
+        "error_type": error_type,
+        "provider": provider,
+        "provider_code": code_matches[-1] if code_matches else "",
+        "provider_message": message_matches[-1] if message_matches else raw,
+        "resource_hint": resource_hint,
+        "worker": worker_name,
+        "model": model,
+        "endpoint": endpoint,
+        "raw_error": raw,
+    }
+
+
+def format_provider_error(details: dict) -> str:
+    parts = [
+        f"worker={details['worker']}",
+        f"model={details['model']}",
+        f"endpoint={details['endpoint']}",
+        f"类型={details['error_type']}",
+    ]
+    if details.get("provider_code"):
+        parts.append(f"供应商错误码={details['provider_code']}")
+    if details.get("provider_message"):
+        parts.append(f"供应商消息={details['provider_message']}")
+    if details.get("resource_hint"):
+        parts.append(f"需检查={details['resource_hint']}")
+    return " | ".join(parts)
 
 
 def evaluate_one(case: dict, worker: dict, ev: dict, ast_checker, Language) -> dict:
@@ -233,12 +304,17 @@ def evaluate_one(case: dict, worker: dict, ev: dict, ast_checker, Language) -> d
             row["error_type"] = result.get("error_type")
             row["error"] = result.get("error")
     except Exception as e:
+        details = provider_error_details(e, worker)
         row.update({
             "prediction": [],
             "valid": False,
             "score": 0.0,
-            "error_type": classify_error(e),
-            "error": str(e),
+            "error_type": details["error_type"],
+            "provider": details["provider"],
+            "provider_code": details["provider_code"],
+            "provider_message": details["provider_message"],
+            "resource_hint": details["resource_hint"],
+            "error": details["raw_error"],
         })
     row["latency_sec"] = round(time.time() - started, 3)
     return row
@@ -256,7 +332,10 @@ def load_existing(path: Path, retry_failed: bool) -> tuple[list[dict], set[tuple
 
 
 def write_scores(path: Path, rows: list[dict]) -> None:
-    fields = ["case_id", "category", "worker", "model", "score", "valid", "latency_sec", "error_type", "error"]
+    fields = [
+        "case_id", "category", "worker", "model", "score", "valid", "latency_sec",
+        "error_type", "provider", "provider_code", "provider_message", "resource_hint", "error",
+    ]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -273,11 +352,14 @@ def preflight_workers(workers: list[dict], ev: dict) -> None:
     check_ev["request_timeout"] = min(float(ev.get("request_timeout") or 30), 30)
     for worker in workers:
         name = str(worker.get("name") or worker["model"])
-        response = call_worker(worker, messages, tools, check_ev)
-        calls, _ = parse_tool_calls(response)
-        if not calls or calls[0].get("ping", {}).get("value") != 1:
-            raise RuntimeError(f"{name} 未返回有效原生 tool call: {calls}")
-        print(f"[bfcl]   {name}: 通过", flush=True)
+        try:
+            response = call_worker(worker, messages, tools, check_ev)
+            calls, _ = parse_tool_calls(response)
+            if not calls or calls[0].get("ping", {}).get("value") != 1:
+                raise RuntimeError(f"未返回有效原生 tool call: {calls}")
+            print(f"[bfcl]   {name}: 通过", flush=True)
+        except Exception as e:
+            raise RuntimeError(format_provider_error(provider_error_details(e, worker))) from None
 
 
 def main() -> int:
@@ -307,7 +389,11 @@ def main() -> int:
         return 0
 
     if not args.skip_preflight:
-        preflight_workers(workers, ev)
+        try:
+            preflight_workers(workers, ev)
+        except Exception as e:
+            print(f"[bfcl:preflight:error] {e}", file=sys.stderr, flush=True)
+            return 2
 
     outputs = cfg.get("outputs") or {}
     out_dir = Path(outputs.get("dir") or "openfugu_bfcl").expanduser()
@@ -342,6 +428,19 @@ def main() -> int:
                 done = len(completed)
                 if row.get("error_type") or done == total or done % progress_every == 0:
                     ok = sum(bool(x.get("valid")) for x in rows)
+                    if row.get("provider_message"):
+                        print("[bfcl:worker:error] " + format_provider_error({
+                            "worker": row["worker"],
+                            "model": row["model"],
+                            "endpoint": next(
+                                str(w.get("api_base") or w.get("base_url") or "<default>")
+                                for w in workers if str(w.get("name") or w["model"]) == row["worker"]
+                            ),
+                            "error_type": row.get("error_type", ""),
+                            "provider_code": row.get("provider_code", ""),
+                            "provider_message": row.get("provider_message", ""),
+                            "resource_hint": row.get("resource_hint", ""),
+                        }), flush=True)
                     print(f"[bfcl] 进度 {done}/{total} ({100 * done / max(1, total):.1f}%) 通过={ok} 未通过={len(rows) - ok}", flush=True)
 
     latest = {}
