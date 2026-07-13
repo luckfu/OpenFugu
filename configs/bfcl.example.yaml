@@ -1,0 +1,66 @@
+# OpenFugu BFCL V4 worker evaluation and router training.
+#
+# Usage:
+#   cp configs/bfcl.example.yaml configs/bfcl.yaml
+#   export DEEPSEEK_API_KEY=...
+#   export ZHIPU_API_KEY=...
+#   DRY_RUN=1 CONFIG_FILE=configs/bfcl.yaml bash scripts/prepare_bfcl.sh
+#
+# Worker order is the router slot order and the tie-break priority. Keep it
+# stable after training. Put the cheaper worker first when quality is equal.
+
+bfcl:
+  repo: https://github.com/ShishirPatil/gorilla.git
+  dir: gorilla
+  version: v4
+  # Pin data + official checker so local and cloud scores remain comparable.
+  revision: 6ea57973c7a6097fd7c5915698c54c17c5b1b6c8
+
+router:
+  model: Qwen/Qwen3-0.6B
+  device: cuda:0
+
+evaluation:
+  categories:
+    - simple_python
+    - parallel
+    - multiple
+    - parallel_multiple
+  # Set to 0 for every entry. Start with 3 for an API smoke test.
+  max_samples_per_category: 3
+  seed: 42
+  concurrency: 3
+  request_timeout: 120
+  max_tokens: 2048
+  temperature: 0
+  progress_every: 10
+
+training:
+  train_fraction: 0.8
+  n_train: 0
+  iters: 20
+  sigma0: 0.3
+  seed: 42
+
+outputs:
+  dir: openfugu_bfcl
+  predictions_jsonl: openfugu_bfcl/bfcl_predictions.jsonl
+  scores_csv: openfugu_bfcl/bfcl_scores.csv
+  matrix_csv: openfugu_bfcl/bfcl_worker_matrix.csv
+  head: openfugu_bfcl/trinity_bfcl.npy
+
+workers:
+  - name: deepseek_chat
+    model: openai/deepseek-chat
+    api_base: https://api.deepseek.com/v1
+    api_key: env:DEEPSEEK_API_KEY
+
+  - name: deepseek_reasoner
+    model: openai/deepseek-reasoner
+    api_base: https://api.deepseek.com/v1
+    api_key: env:DEEPSEEK_API_KEY
+
+  - name: zhipu_glm_5_2
+    model: openai/glm-5.2
+    api_base: https://open.bigmodel.cn/api/paas/v4/
+    api_key: env:ZHIPU_API_KEY

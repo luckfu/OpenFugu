@@ -62,6 +62,17 @@ python train/train_trinity_liveclawbench.py --liveclawbench-dir <LiveClawBench d
   --ae CUSTOM_BASE_URL="$CUSTOM_BASE_URL" --ae CUSTOM_API_KEY="$CUSTOM_API_KEY" \
   --n-train 8 --iters 12 --precompute-all
 
+# EVAL + TRAIN: BFCL V4 function-calling router data (no Docker)
+# Chinese runbook: docs/BFCL_RUNBOOK.md
+cp configs/bfcl.example.yaml configs/bfcl.yaml
+# edit workers and export provider API keys
+DRY_RUN=1 CONFIG_FILE=configs/bfcl.yaml bash scripts/prepare_bfcl.sh
+CONFIG_FILE=configs/bfcl.yaml bash scripts/prepare_bfcl.sh
+# train from committed BFCL predictions on a GPU machine
+CONFIG_FILE=configs/bfcl.yaml bash scripts/colab_bfcl_router.sh
+# full cloud flow: evaluate -> retry -> train
+CONFIG_FILE=configs/bfcl.yaml bash scripts/cloud_bfcl_full_pipeline.sh
+
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # mock: +9% over one-shot (toy policy w/ headroom)
 python train/train_recursion_real.py      # REAL recursion (round-0 fed back into round-1)
