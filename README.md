@@ -79,6 +79,12 @@ cp configs/bfcl_multiturn.example.yaml configs/bfcl_multiturn.yaml
 DRY_RUN=1 CONFIG_FILE=configs/bfcl_multiturn.yaml bash scripts/prepare_bfcl_multiturn.sh
 CONFIG_FILE=configs/bfcl_multiturn.yaml bash scripts/prepare_bfcl_multiturn.sh
 
+# EVAL: unified evaluator (EvalScope) — any benchmark, per-worker, no hand-rolled datasets
+# Chinese runbook: docs/EVALSCOPE_RUNBOOK.md
+bash scripts/setup_eval_env.sh            # one-time isolated env (.venv-eval)
+.venv-eval/bin/evalscope eval ...         # run each worker on any benchmark
+python eval/evalscope_to_matrix.py ...    # merge into router training matrix
+
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # mock: +9% over one-shot (toy policy w/ headroom)
 python train/train_recursion_real.py      # REAL recursion (round-0 fed back into round-1)
