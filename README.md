@@ -84,6 +84,7 @@ CONFIG_FILE=configs/bfcl_multiturn.yaml bash scripts/prepare_bfcl_multiturn.sh
 bash scripts/setup_eval_env.sh            # one-time isolated env (.venv-eval)
 .venv-eval/bin/evalscope eval ...         # run each worker on any benchmark
 python eval/evalscope_to_matrix.py ...    # merge into router training matrix
+python openfugu/eval_ui.py --config configs/bfcl.yaml --port 8090   # or do it all in the browser
 
 # TRAIN: Fugu-Ultra recursive topology — Conductor revises its own output (test-time scaling)
 python train/train_recursion.py           # mock: +9% over one-shot (toy policy w/ headroom)
@@ -130,6 +131,16 @@ python eval/ultra_e2e.py --conductor-ckpt <conductor dir> \
 # EVAL: does orchestration beat the best single model? (the central Fugu claim)
 python eval/eval_orchestration.py        # trained coordinator +107% over best single, PASS
 ```
+
+## Web console for the unified evaluator
+
+Everything above under "EVAL: unified evaluator" is also a three-click browser flow:
+pick workers and a benchmark (with dataset preview & on-demand download), watch live
+progress with per-case retry, then merge results into the router-training matrix.
+
+![OpenFugu eval console](assets/06_eval_console.png)
+
+![Dataset preview modal](assets/07_eval_preview.png)
 
 ## The mechanism in one breath
 
