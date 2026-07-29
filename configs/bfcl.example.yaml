@@ -50,17 +50,17 @@ outputs:
   head: openfugu_bfcl/trinity_bfcl.npy
 
 workers:
-  - name: deepseek_chat
-    model: openai/deepseek-chat
+  - name: DeepSeek-V4-Flash
+    model: openai/deepseek-v4-flash
     api_base: https://api.deepseek.com/v1
     api_key: env:DEEPSEEK_API_KEY
 
-  - name: deepseek_reasoner
-    model: openai/deepseek-reasoner
+  - name: DeepSeek-V4-Pro
+    model: openai/deepseek-v4-pro
     api_base: https://api.deepseek.com/v1
     api_key: env:DEEPSEEK_API_KEY
 
   - name: zhipu_glm_5_2
     model: openai/glm-5.2
-    api_base: https://open.bigmodel.cn/api/paas/v4/
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
     api_key: env:ZHIPU_API_KEY
